@@ -1,0 +1,9 @@
+:console_url: {openshift_console_url}
+:api_url: {openshift_api_url}
+:user: {user_name}
+:password: {user_password}
+:namespace: {project_namespace}
+:bastion_host: {bastion_public_hostname}
+:ocp_version: {openshift_version}
+:devspaces_url: {devspaces_url}
+:mta_url: {mta_url}

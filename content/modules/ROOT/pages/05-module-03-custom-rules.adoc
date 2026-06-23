@@ -1,0 +1,685 @@
+= モジュール 3: カスタムルールの追加
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 1
+
+toc::[]
+
+モジュール 2 では MTA がサンプルアプリの問題箇所を自動検出し、Konveyor AI が移行コードを提案してくれることを確認しました。しかし、あなたは一つのことが気になっています。「Legacy Java Japan カンパニー独自のフレームワークは標準ルールに含まれていない。これでは移行が不完全になる。」
+
+上司に報告したところ、返ってきた言葉はシンプルでした。「だったらルールを自分で作ればいい。」
+
+MTA はカスタムルールをサポートしています。社内フレームワーク固有の検出パターンを YAML で記述し、MTA に登録すれば、標準ルールと同じように分析に使えます。このモジュールでは、その仕組みを理解し、実際に Legacy Java Japan カンパニー向けのカスタムルールを作成して登録します。
+
+== 学習目標
+
+このモジュールを完了すると、以下のことができるようになります:
+
+* MTA のルールエンジンの構造 (when / message / tag) を説明できる
+* YAML 形式でカスタムルールを作成できる
+* 作成したカスタムルールを MTA に登録し、分析結果に反映できる
+
+== エクササイズ 1: MTA ルールエンジンの仕組み理解
+
+カスタムルールを作る前に、MTA がどのようにルールを処理するかを理解します。Legacy Java Japan カンパニーの移行ルールを正確に記述するには、ルールの構造を把握しておくことが大切です。
+
+=== MTA 組み込みルールセットの確認
+
+MTA には Java EE から Quarkus への移行に必要なルールがあらかじめ用意されています。まず、どのようなルールが組み込まれているかを確認します。
+
+. Dev Spaces のターミナルで、MTA API を使って利用可能なルールセットを一覧取得します:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -m json.tool | head -60
+----
++
+ルールセットの名前と ID が JSON 形式で返ってきます。
+
+. 組み込みルールセットの数を確認します:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(f'登録済みルールセット数: {len(data)}')
+for rs in data[:5]:
+    print(f'  - [{rs.get(\"id\", \"?\")}] {rs.get(\"name\", \"名前なし\")}')
+"
+----
+
+. 特定のルールセット (例: ID=1) の詳細を確認し、ルールの構造を見ていきます:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} {mta_url}/hub/rulesets/1 | python3 -m json.tool
+----
+
+image::module03-ruleset-list.png[MTA ルールセット一覧,link=self,window=blank,width=700]
+
+=== ルールの YAML 構造を理解する
+
+MTA のカスタムルールは YAML 形式で記述します。基本的な構造を確認します。標準的なルールの例を見てみましょう:
+
+[source,yaml]
+----
+- ruleID: example-rule-001
+  labels:
+    - konveyor.io/source=java-ee
+    - konveyor.io/target=quarkus
+  message: |-
+    `javax.ejb.Stateless` は Quarkus では `@ApplicationScoped` または `@Singleton` に置き換えてください。
+    詳細: https://quarkus.io/guides/cdi
+  tag:
+    - EJB
+    - CDI
+  when:
+    java.referenced:
+      pattern: javax.ejb.Stateless
+      location: ANNOTATION
+----
+
+各フィールドの役割を確認します:
+
+[source,text]
+----
+ruleID   : ルールの一意識別子 (プレフィックスで分類すると管理しやすい)
+labels   : 変換元/変換先のテクノロジーラベル
+message  : 検出時に IDE / レポートに表示されるメッセージ
+tag      : 検出結果を分類するタグ (フィルタリングに使用)
+when     : 検出条件 (java.referenced / xml / filecontent など)
+----
+
+=== よく使う `when` 条件のパターン
+
+[source,yaml]
+----
+# Java クラス・アノテーションを検出
+when:
+  java.referenced:
+    pattern: com.example.legacy.LogFactory
+    location: IMPORT
+
+# XML 要素を検出
+when:
+  xml:
+    xpath: //*[local-name()='persistence-unit']
+
+# ファイル内の文字列パターンを検出
+when:
+  filecontent:
+    pattern: "legacy\\.di\\.Container"
+    filePattern: "*.java"
+----
+
+=== 確認
+
+ルール構造を理解できたか確認します。次のコマンドを実行し、組み込みルールの `when` 条件タイプを集計します:
+
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print('取得したルールセット数:', len(data))
+print()
+print('各ルールセットの名前:')
+for rs in data:
+    name = rs.get('name', '名前なし')
+    rs_id = rs.get('id', '?')
+    print(f'  ID={rs_id}: {name}')
+"
+----
+
+ルールセットの一覧が表示されれば、ルールエンジンへのアクセスは正常です。
+
+== エクササイズ 2: カスタムルールの作成
+
+Legacy Java Japan カンパニーには、標準ルールではカバーされない社内フレームワークが存在します。具体的には以下の 3 つです:
+
+* `ljj-logging`: 独自のロギングライブラリ (`com.ljj.logging.LJJLogger`)
+* `ljj-di`: カスタム DI コンテナ (`com.ljj.di.Container`, `@LJJInject`)
+* `ljj-config`: 設定管理フレームワーク (`com.ljj.config.AppConfig`)
+
+これらを検出するカスタムルールセットを YAML で作成します。
+
+=== 前提条件
+
+* エクササイズ 1 で MTA ルールの構造を理解していること
+* Dev Spaces のターミナルが開いていること
+
+=== カスタムルールファイルの作成
+
+. 作業ディレクトリに移動し、カスタムルール用ディレクトリを作成します:
++
+[source,bash,role="execute"]
+----
+mkdir -p ~/ljj-custom-rules
+cd ~/ljj-custom-rules
+----
+
+. Legacy Java Japan カンパニー向けカスタムルールファイルを作成します:
++
+[source,bash,role="execute"]
+----
+cat > ~/ljj-custom-rules/ljj-migration-rules.yaml << 'EOF'
+- ruleID: ljj-logging-001
+  labels:
+    - konveyor.io/source=java-ee
+    - konveyor.io/target=quarkus
+    - konveyor.io/source=ljj-framework
+  message: |-
+    `LJJLogger` は Legacy Java Japan 社内ロギングライブラリです。
+    Quarkus では JBoss Logging (`org.jboss.logging.Logger`) または SLF4J を使用してください。
+
+    移行手順:
+    1. `import com.ljj.logging.LJJLogger;` を削除
+    2. `import org.jboss.logging.Logger;` を追加
+    3. `LJJLogger.getLogger(ClassName.class)` を `Logger.getLogger(ClassName.class)` に置き換え
+  tag:
+    - LJJ-Framework
+    - Logging
+    - Migration-Required
+  when:
+    java.referenced:
+      pattern: com.ljj.logging.LJJLogger
+      location: IMPORT
+
+- ruleID: ljj-di-container-001
+  labels:
+    - konveyor.io/source=java-ee
+    - konveyor.io/target=quarkus
+    - konveyor.io/source=ljj-framework
+  message: |-
+    `com.ljj.di.Container` は Legacy Java Japan 独自の DI コンテナです。
+    Quarkus では CDI (Jakarta Contexts and Dependency Injection) を使用してください。
+
+    移行手順:
+    1. `Container.getInstance(ClassName.class)` を CDI の `@Inject` に置き換え
+    2. 対象クラスに `@ApplicationScoped` または `@RequestScoped` を付与
+    3. `ljj-di` の依存関係を `pom.xml` から削除
+  tag:
+    - LJJ-Framework
+    - DI-Container
+    - Migration-Required
+  when:
+    java.referenced:
+      pattern: com.ljj.di.Container
+      location: IMPORT
+
+- ruleID: ljj-di-inject-001
+  labels:
+    - konveyor.io/source=java-ee
+    - konveyor.io/target=quarkus
+    - konveyor.io/source=ljj-framework
+  message: |-
+    `@LJJInject` アノテーションは Legacy Java Japan 独自の DI アノテーションです。
+    Quarkus では標準の `@Inject` (jakarta.inject.Inject) を使用してください。
+
+    移行手順:
+    1. `import com.ljj.di.LJJInject;` を削除
+    2. `import jakarta.inject.Inject;` を追加
+    3. `@LJJInject` を `@Inject` に置き換え
+  tag:
+    - LJJ-Framework
+    - DI-Annotation
+    - Migration-Required
+  when:
+    java.referenced:
+      pattern: com.ljj.di.LJJInject
+      location: ANNOTATION
+
+- ruleID: ljj-config-001
+  labels:
+    - konveyor.io/source=java-ee
+    - konveyor.io/target=quarkus
+    - konveyor.io/source=ljj-framework
+  message: |-
+    `AppConfig` は Legacy Java Japan 独自の設定管理クラスです。
+    Quarkus では MicroProfile Config (`@ConfigProperty`) を使用してください。
+
+    移行手順:
+    1. `AppConfig.get("key")` パターンを `@ConfigProperty(name = "key")` に置き換え
+    2. `application.properties` に設定値を移行
+    3. `ljj-config` の依存関係を `pom.xml` から削除
+  tag:
+    - LJJ-Framework
+    - Configuration
+    - Migration-Required
+  when:
+    java.referenced:
+      pattern: com.ljj.config.AppConfig
+      location: IMPORT
+EOF
+----
+
+. 作成したルールファイルを確認します:
++
+[source,bash,role="execute"]
+----
+cat ~/ljj-custom-rules/ljj-migration-rules.yaml
+----
+
+. YAML の構文が正しいことを確認します:
++
+[source,bash,role="execute"]
+----
+python3 -c "
+import yaml, sys
+with open('/root/ljj-custom-rules/ljj-migration-rules.yaml') as f:
+    rules = yaml.safe_load(f)
+print(f'ルール数: {len(rules)}')
+for r in rules:
+    print(f'  - {r[\"ruleID\"]}: タグ {r.get(\"tag\", [])}')
+"
+----
++
+4 件のルールが表示されれば、YAML 構文は正しいです。
+
+image::module03-custom-rules-yaml.png[カスタムルール YAML ファイル,link=self,window=blank,width=700]
+
+=== カスタムルールの検証 (ドライラン)
+
+登録前に、ルールの内容が適切かどうかを確認するためのテスト用 Java ファイルを作成します。
+
+. テスト用 Java ファイルを作成します:
++
+[source,bash,role="execute"]
+----
+mkdir -p ~/ljj-custom-rules/test-app/src/main/java/com/example
+cat > ~/ljj-custom-rules/test-app/src/main/java/com/example/SampleService.java << 'EOF'
+package com.example;
+
+import com.ljj.logging.LJJLogger;
+import com.ljj.di.Container;
+import com.ljj.di.LJJInject;
+import com.ljj.config.AppConfig;
+
+public class SampleService {
+
+    private static final LJJLogger logger = LJJLogger.getLogger(SampleService.class);
+
+    @LJJInject
+    private OrderRepository orderRepository;
+
+    public String getConfig() {
+        return AppConfig.get("app.name");
+    }
+
+    public void process() {
+        Object repo = Container.getInstance(OrderRepository.class);
+        logger.info("Processing started");
+    }
+}
+EOF
+----
+
+. 作成したテストファイルを確認します:
++
+[source,bash,role="execute"]
+----
+cat ~/ljj-custom-rules/test-app/src/main/java/com/example/SampleService.java
+----
+
+このファイルには 4 つのカスタムルールが検出対象とするパターンがすべて含まれています。エクササイズ 3 でこのファイルを含むアプリを分析し、ルールが機能することを確認します。
+
+=== 確認
+
+作成したルールファイルの構造を確認します:
+
+[source,bash,role="execute"]
+----
+echo "=== カスタムルールファイルの確認 ==="
+ls -la ~/ljj-custom-rules/
+echo ""
+echo "=== ルール数の確認 ==="
+grep -c "ruleID:" ~/ljj-custom-rules/ljj-migration-rules.yaml
+echo "件のカスタムルールが定義されています"
+echo ""
+echo "=== 各ルール ID ==="
+grep "ruleID:" ~/ljj-custom-rules/ljj-migration-rules.yaml
+----
+
+4 件のルール ID が表示されれば、カスタムルールファイルの作成は完了です。
+
+== エクササイズ 3: カスタムルールの適用と検証
+
+カスタムルールファイルができました。次は MTA に登録し、サンプルアプリの分析を再実行して、カスタムルールが正しく機能することを確認します。
+
+=== カスタムルールセットの MTA への登録
+
+MTA API を使ってカスタムルールセットを登録します。
+
+. まず、カスタムルールセットを MTA Hub API で作成します:
++
+[source,bash,role="execute"]
+----
+curl -s -X POST \
+  -u {user}:{password} \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "LJJ Framework Migration Rules",
+    "description": "Legacy Java Japan カンパニー社内フレームワーク移行ルール"
+  }' \
+  {mta_url}/hub/rulesets | python3 -m json.tool
+----
++
+レスポンスに `"id"` フィールドが含まれていれば、ルールセットが作成されています。ID をメモしておきます。
+
+. 作成したルールセットの ID を変数に格納します:
++
+[source,bash,role="execute"]
+----
+RULESET_ID=$(curl -s -u {user}:{password} {mta_url}/hub/rulesets | \
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for rs in data:
+    if rs.get('name') == 'LJJ Framework Migration Rules':
+        print(rs['id'])
+        break
+")
+echo "カスタムルールセット ID: $RULESET_ID"
+----
+
+. YAML ルールファイルをルールセットにアップロードします:
++
+[source,bash,role="execute"]
+----
+curl -s -X POST \
+  -u {user}:{password} \
+  -F "file=@/root/ljj-custom-rules/ljj-migration-rules.yaml" \
+  {mta_url}/hub/rulesets/${RULESET_ID}/rules | python3 -m json.tool
+----
+
+. カスタムルールが登録されたことを確認します:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} \
+  {mta_url}/hub/rulesets/${RULESET_ID}/rules | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+if isinstance(data, list):
+    print(f'登録済みルール数: {len(data)}')
+    for rule in data:
+        print(f'  - {rule.get(\"ruleID\", \"?\")}')
+else:
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+"
+----
+
+image::module03-ruleset-registered.png[カスタムルールセット登録完了,link=self,window=blank,width=700]
+
+=== カスタムルールを含む分析の再実行
+
+登録したカスタムルールを使って、サンプルアプリを再分析します。
+
+. モジュール 2 で使用したアプリケーションの ID を確認します:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} {mta_url}/hub/applications | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(f'登録済みアプリ数: {len(data)}')
+for app in data:
+    print(f'  ID={app[\"id\"]}: {app[\"name\"]}')
+"
+----
+
+. アプリケーション ID を変数に格納します (リストに表示された最初のアプリを使用):
++
+[source,bash,role="execute"]
+----
+APP_ID=$(curl -s -u {user}:{password} {mta_url}/hub/applications | \
+  python3 -c "import json, sys; data = json.load(sys.stdin); print(data[0]['id']) if data else print('')")
+echo "分析対象アプリ ID: $APP_ID"
+----
+
+. カスタムルールセットを含む新しい分析タスクを作成します:
++
+[source,bash,role="execute"]
+----
+RULESET_ID=$(curl -s -u {user}:{password} {mta_url}/hub/rulesets | \
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for rs in data:
+    if rs.get('name') == 'LJJ Framework Migration Rules':
+        print(rs['id'])
+        break
+")
+
+curl -s -X POST \
+  -u {user}:{password} \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"application\": {\"id\": ${APP_ID}},
+    \"mode\": {
+      \"binary\": false,
+      \"withDeps\": false,
+      \"artifact\": \"\"
+    },
+    \"rules\": {
+      \"rulesets\": [{\"id\": ${RULESET_ID}}],
+      \"targets\": [\"quarkus\"],
+      \"sources\": [\"java-ee\", \"ljj-framework\"]
+    },
+    \"scope\": {
+      \"packages\": {
+        \"included\": [],
+        \"excluded\": []
+      }
+    }
+  }" \
+  {mta_url}/hub/tasks | python3 -m json.tool
+----
+
+. 分析タスクの ID を取得し、ステータスを監視します:
++
+[source,bash,role="execute"]
+----
+TASK_ID=$(curl -s -u {user}:{password} {mta_url}/hub/tasks | \
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+if isinstance(data, list) and data:
+    # 最新のタスクを取得
+    latest = sorted(data, key=lambda x: x.get('id', 0), reverse=True)[0]
+    print(latest['id'])
+")
+echo "分析タスク ID: $TASK_ID"
+
+# ステータスを確認 (Succeeded になるまで待機)
+curl -s -u {user}:{password} {mta_url}/hub/tasks/${TASK_ID} | \
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(f'タスク状態: {data.get(\"state\", \"不明\")}')
+print(f'タスク ID: {data.get(\"id\", \"?\")}')
+"
+----
++
+分析には 1〜3 分かかります。`state` が `Succeeded` になるまで待ちます。
+
+. 分析完了を待ちながらステータスを確認します:
++
+[source,bash,role="execute"]
+----
+TASK_ID=$(curl -s -u {user}:{password} {mta_url}/hub/tasks | \
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+if isinstance(data, list) and data:
+    latest = sorted(data, key=lambda x: x.get('id', 0), reverse=True)[0]
+    print(latest['id'])
+")
+
+for i in {1..6}; do
+  STATE=$(curl -s -u {user}:{password} {mta_url}/hub/tasks/${TASK_ID} | \
+    python3 -c "import json, sys; d = json.load(sys.stdin); print(d.get('state','?'))")
+  echo "[試行 ${i}/6] タスク状態: ${STATE}"
+  if [ "${STATE}" = "Succeeded" ]; then
+    echo "分析が完了しました"
+    break
+  fi
+  sleep 30
+done
+----
+
+=== カスタムルールの検出結果を確認する
+
+. 分析レポートから、カスタムルールによる検出結果を取得します:
++
+[source,bash,role="execute"]
+----
+APP_ID=$(curl -s -u {user}:{password} {mta_url}/hub/applications | \
+  python3 -c "import json, sys; data = json.load(sys.stdin); print(data[0]['id']) if data else print('')")
+
+curl -s -u {user}:{password} \
+  "{mta_url}/hub/applications/${APP_ID}/analysis/issues" | \
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+if isinstance(data, list):
+    ljj_issues = [i for i in data if any('ljj' in str(t).lower() or 'LJJ' in str(t) for t in i.get('ruleset', {}).get('labels', []))]
+    print(f'カスタムルールによる検出数: {len(ljj_issues)}')
+    print(f'全検出数: {len(data)}')
+    for issue in ljj_issues[:5]:
+        print(f'  - {issue.get(\"rule\", \"?\")}')
+else:
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+"
+----
+
+. VS Code の Konveyor サイドパネルでも確認します。コマンドパレット (`Ctrl+Shift+P`) を開き、`Konveyor: View Issues` を実行します。
+
+. Konveyor パネルに LJJ Framework 関連の issue が表示されていることを確認します:
++
+[source,text]
+----
+期待される検出結果:
+  [ljj-logging-001]  LJJLogger の使用箇所
+  [ljj-di-container-001]  com.ljj.di.Container の使用箇所
+  [ljj-di-inject-001]  @LJJInject アノテーションの使用箇所
+  [ljj-config-001]  AppConfig の使用箇所
+----
+
+image::module03-custom-rules-results.png[カスタムルール検出結果,link=self,window=blank,width=700]
+
+=== 確認
+
+カスタムルールが正しく機能していることを最終確認します:
+
+[source,bash,role="execute"]
+----
+echo "=== カスタムルールセットの登録確認 ==="
+RULESET_ID=$(curl -s -u {user}:{password} {mta_url}/hub/rulesets | \
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for rs in data:
+    if rs.get('name') == 'LJJ Framework Migration Rules':
+        print(rs['id'])
+        break
+")
+echo "カスタムルールセット ID: ${RULESET_ID}"
+
+echo ""
+echo "=== 登録済みルール確認 ==="
+curl -s -u {user}:{password} {mta_url}/hub/rulesets/${RULESET_ID} | \
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(f'ルールセット名: {data.get(\"name\", \"?\")}')
+print(f'説明: {data.get(\"description\", \"?\")}')
+"
+
+echo ""
+echo "=== 最新タスクの状態確認 ==="
+curl -s -u {user}:{password} {mta_url}/hub/tasks | \
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+if isinstance(data, list) and data:
+    latest = sorted(data, key=lambda x: x.get('id', 0), reverse=True)[0]
+    print(f'最新タスク ID: {latest[\"id\"]}')
+    print(f'状態: {latest.get(\"state\", \"?\")}')
+"
+----
+
+カスタムルールセットが登録され、分析タスクが `Succeeded` になっていれば、このモジュールのすべての目標を達成しています。
+
+=== よくある問題
+
+**問題**: ルールセット作成時に `400 Bad Request` が返る
+
+→ **解決方法**: リクエスト JSON のフォーマットを確認します。`name` フィールドが必須です:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -m json.tool | head -20
+----
+
+**問題**: YAML ファイルのアップロードが失敗する
+
+→ **解決方法**: ファイルパスとルールセット ID を確認します:
++
+[source,bash,role="execute"]
+----
+ls -la ~/ljj-custom-rules/ljj-migration-rules.yaml
+echo "ファイルサイズ: $(wc -c < ~/ljj-custom-rules/ljj-migration-rules.yaml) bytes"
+----
+
+**問題**: 分析タスクが `Failed` になる
+
+→ **解決方法**: タスクのログを確認します:
++
+[source,bash,role="execute"]
+----
+TASK_ID=$(curl -s -u {user}:{password} {mta_url}/hub/tasks | \
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+if isinstance(data, list) and data:
+    latest = sorted(data, key=lambda x: x.get('id', 0), reverse=True)[0]
+    print(latest['id'])
+")
+curl -s -u {user}:{password} {mta_url}/hub/tasks/${TASK_ID}/logs | tail -30
+----
+
+**問題**: カスタムルールの検出結果がゼロになる
+
+→ **解決方法**: 分析対象のアプリに `com.ljj.*` パッケージが含まれているか確認します。テスト用の `SampleService.java` をプロジェクトに追加してから再実行してください。
+
+== 学習成果チェックポイント
+
+このモジュールで学んだ内容を振り返りましょう。
+
+* **MTA ルールエンジンの理解**: `ruleID`、`labels`、`when`、`message`、`tag` の各フィールドの役割と、`java.referenced`、`xml`、`filecontent` といった検出条件のパターンを確認しました
+* **カスタムルールの作成**: Legacy Java Japan カンパニーの社内フレームワーク (`LJJLogger`、`Container`、`@LJJInject`、`AppConfig`) を検出する 4 つのカスタムルールを YAML で記述しました
+* **カスタムルールの適用と検証**: 作成したルールセットを MTA API で登録し、分析を再実行して検出結果に反映されることを確認しました
+
+標準ルールでカバーできない社内固有のパターンに対応できるようになりました。この仕組みを応用すれば、Legacy Java Japan カンパニーが持つ他の独自フレームワークにも同様のルールを作成できます。
+
+== モジュールまとめ
+
+今日は「ルールを自分で作ればいい」という言葉を実証しました。
+
+**達成したこと:**
+
+* MTA のルール構造を読み解き、`when` 条件の書き方を習得した
+* Legacy Java Japan カンパニー固有の 4 つのフレームワークを検出するカスタムルールを YAML で作成した
+* カスタムルールを MTA に登録し、分析に組み込んで結果を確認した
+
+**Legacy Java Japan カンパニーへの価値:**
+
+* **網羅性の向上**: 標準ルールが見落とす社内フレームワークの移行箇所を自動検出できるようになった
+* **再利用性**: 一度作成したルールは全プロジェクトの分析に適用できる
+* **チームへの展開**: カスタムルール YAML はバージョン管理に保存し、組織全体で共有できる
+
+**次のステップ:**
+
+モジュール 4 では、2 つ目のサンプルアプリに対してカスタムルールも含めた包括的な移行分析を実行します。モジュール 2 で培った移行の手順と、このモジュールで作成したカスタムルールの両方を組み合わせた実践的な移行を体験します。

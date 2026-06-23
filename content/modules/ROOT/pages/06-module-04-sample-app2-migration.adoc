@@ -1,0 +1,847 @@
+= モジュール 4: サンプルアプリ 2 のマイグレーション
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 1
+
+toc::[]
+
+ここまでの 3 つのモジュールで、あなたは Legacy Java Japan カンパニーの移行プロジェクトに必要なすべてのピースを手に入れました。IDE プラグインを設定し、最初のアプリを移行し、組織独自のカスタムルールも作りました。
+
+最終モジュールでは、これらのスキルをひとつの流れにまとめます。対象は 2 つ目のサンプルアプリケーションです。EJB、JMS、JSF を含む、より複雑な Java EE アプリです。実際の移行プロジェクトで直面するパターンが凝縮されています。
+
+Module 2 のように手順を追って進めるのではなく、今回は自律的に判断しながら進めます。分析結果を読み解き、優先順位を決め、AI 提案と手動修正を組み合わせて移行を完成させます。これが、Legacy Java Japan カンパニーが目指す移行ワークフローの完成形です。
+
+== 学習目標
+
+このモジュールを完了すると、以下のことができるようになります:
+
+* 複数コンポーネント（EJB、JMS、JSF）を含む複雑な Java EE アプリに対して MTA 分析（カスタムルール込み）を実行する
+* 標準ルールとカスタムルール両方の検出結果を解釈し、移行の優先順位を決める
+* Konveyor AI の提案を適用しながら、JMS から Reactive Messaging、JSF から RESTful API への変換を手動で仕上げる
+* 移行後のアプリケーションを Quarkus でビルドし、OpenShift にデプロイして動作を確認する
+
+== エクササイズ 1: 2 つ目のサンプルアプリの準備と MTA 分析
+
+Legacy Java Japan カンパニーの CTO から、最初の移行成功を受けて追加の指示が届きました。「次は注文管理システムだ。EJB でトランザクション管理、JMS でメッセージキュー、JSF でフロントエンドを組んでいる。Module 3 で作ったカスタムルールも使って、まず全体を把握してほしい。」
+
+Module 2 で経験した流れを思い出しながら、今回はより複雑なアプリケーションを分析します。
+
+=== 前提条件
+
+* Module 1 で設定した Konveyor AI プラグインが有効であること
+* Module 3 で作成したカスタムルールが MTA サーバーに登録済みであること
+* Dev Spaces のターミナルが開いていること
+
+=== 手順
+
+. まず、2 つ目のサンプルアプリケーション（注文管理システム）をワークスペースにクローンします:
++
+[source,bash,role="execute"]
+----
+cd /projects
+git clone https://github.com/konveyor/tackle-testapp-public -b order-management --single-branch tackle-order-mgmt
+cd tackle-order-mgmt
+----
+
+. プロジェクト構造を確認して、移行対象のコンポーネントを把握します:
++
+[source,bash,role="execute"]
+----
+find . -name "*.java" | head -30
+find . -name "*.xml" -o -name "*.properties" | grep -v target | head -20
+----
+
+. Java EE コンポーネントの種類と件数を確認します:
++
+[source,bash,role="execute"]
+----
+echo "=== EJB コンポーネント ==="
+grep -rl "@Stateless\|@Stateful\|@Singleton\|@MessageDriven" --include="*.java" . | wc -l
+
+echo "=== JMS 利用箇所 ==="
+grep -rl "javax.jms\|@JMSConnectionFactory\|@JMSDestinationDefinition" --include="*.java" . | wc -l
+
+echo "=== JSF コンポーネント ==="
+grep -rl "javax.faces\|@ManagedBean\|@ViewScoped" --include="*.java" . | wc -l
+
+echo "=== javax.persistence 利用箇所 ==="
+grep -rl "javax.persistence" --include="*.java" . | wc -l
+----
+
+. Module 3 で登録したカスタムルールが MTA に存在するか確認します:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for rs in data:
+    print(f'ルールセット: {rs.get(\"name\", \"unknown\")} (ID: {rs.get(\"id\", \"?\")})')
+"
+----
++
+カスタムルールセット（`legacy-java-japan-custom-rules` など）が表示されることを確認します。
+
+. MTA にアプリケーションを登録します。まず現在登録されているアプリの一覧を確認します:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} {mta_url}/hub/applications | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for app in data:
+    print(f'ID: {app[\"id\"]} - {app[\"name\"]}')
+"
+----
+
+. 新しいアプリケーションを MTA に登録します:
++
+[source,bash,role="execute"]
+----
+curl -s -X POST -u {user}:{password} \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "tackle-order-mgmt",
+    "description": "Legacy Java Japan - 注文管理システム (EJB/JMS/JSF)",
+    "repository": {
+      "kind": "git",
+      "url": "https://github.com/konveyor/tackle-testapp-public",
+      "branch": "order-management"
+    }
+  }' \
+  {mta_url}/hub/applications | python3 -m json.tool
+----
++
+レスポンスに `"id"` が含まれていれば登録成功です。表示された ID をメモしておきます（以降 `APP_ID` として使用します）。
+
+. 分析タスクを作成します。カスタムルールセットの ID も含めて設定します:
++
+[source,bash,role="execute"]
+----
+# 前の手順で確認したアプリ ID とカスタムルールセット ID を変数にセット
+APP_ID=<登録したアプリの ID>
+RULESET_ID=<カスタムルールセットの ID>
+
+curl -s -X POST -u {user}:{password} \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"application\": {\"id\": $APP_ID},
+    \"target\": [\"quarkus\", \"jakarta-ee10\"],
+    \"sources\": [\"java-ee\"],
+    \"rulesets\": [{\"id\": $RULESET_ID}],
+    \"mode\": {\"binary\": false, \"withDeps\": true}
+  }" \
+  {mta_url}/hub/tasks | python3 -m json.tool
+----
+
+. 分析の進捗を確認します。完了まで 2〜3 分かかります:
++
+[source,bash,role="execute"]
+----
+TASK_ID=<作成したタスクの ID>
+
+watch -n 10 "curl -s -u {user}:{password} {mta_url}/hub/tasks/$TASK_ID | python3 -c \"
+import json, sys
+data = json.load(sys.stdin)
+print(f'ステータス: {data.get(\\\"state\\\", \\\"unknown\\\")}')
+print(f'進捗: {data.get(\\\"progress\\\", {})}')
+\""
+----
++
+`"state": "Succeeded"` が表示されたら `Ctrl+C` で watch を終了します。
+
+image::module04-mta-analysis-running.png[MTA 分析実行中の画面,link=self,window=blank,width=700]
+
+=== 確認
+
+分析が正常に完了したことを確認します。
+
+[source,bash,role="execute"]
+----
+# 分析結果のサマリーを取得
+curl -s -u {user}:{password} {mta_url}/hub/tasks/$TASK_ID | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+state = data.get('state', 'unknown')
+print(f'分析状態: {state}')
+if state == 'Succeeded':
+    print('分析が正常に完了しました。次のステップに進めます。')
+else:
+    print(f'分析中またはエラーが発生しています。状態を確認してください: {state}')
+"
+----
+
+`分析が正常に完了しました` と表示されれば、次のエクササイズに進みます。
+
+== エクササイズ 2: 分析結果の解釈と移行計画の策定
+
+分析が完了しました。次は検出結果を読み解き、何を優先して移行するかを判断します。標準ルールの検出結果とカスタムルールの検出結果を区別して見ていきます。実際のプロジェクトでもこの判断力が移行の成否を分けます。
+
+=== 手順
+
+. MTA の Issues エンドポイントから検出された問題の一覧を取得します:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} \
+  "{mta_url}/hub/applications/$APP_ID/analysis/issues" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+issues = data if isinstance(data, list) else data.get('issues', [])
+print(f'検出された問題の総数: {len(issues)}')
+print()
+
+# カテゴリー別に集計
+categories = {}
+for issue in issues:
+    cat = issue.get('category', 'unknown')
+    categories[cat] = categories.get(cat, 0) + 1
+
+print('=== カテゴリー別集計 ===')
+for cat, count in sorted(categories.items(), key=lambda x: -x[1]):
+    print(f'  {cat}: {count} 件')
+"
+----
+
+. 重要度（effort）でフィルタリングして、対応が必要な項目を確認します:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} \
+  "{mta_url}/hub/applications/$APP_ID/analysis/issues" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+issues = data if isinstance(data, list) else data.get('issues', [])
+
+print('=== 対応が必要な主要な問題 (effort > 0) ===')
+for issue in issues:
+    effort = issue.get('effort', 0)
+    if effort > 0:
+        print(f'[effort:{effort}] {issue.get(\"name\", \"?\")}')
+        print(f'  ファイル: {issue.get(\"file\", \"?\")}')
+        print(f'  ルールセット: {issue.get(\"ruleSet\", \"?\")}')
+        print()
+" | head -60
+----
+
+. カスタムルールの検出結果を標準ルールと区別して確認します:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} \
+  "{mta_url}/hub/applications/$APP_ID/analysis/issues" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+issues = data if isinstance(data, list) else data.get('issues', [])
+
+standard_issues = []
+custom_issues = []
+
+for issue in issues:
+    ruleset = issue.get('ruleSet', '')
+    if 'legacy-java-japan' in ruleset.lower() or 'custom' in ruleset.lower():
+        custom_issues.append(issue)
+    else:
+        standard_issues.append(issue)
+
+print(f'標準ルール検出数: {len(standard_issues)}')
+print(f'カスタムルール検出数: {len(custom_issues)}')
+print()
+
+print('=== カスタムルールの検出結果 ===')
+for issue in custom_issues:
+    print(f'  - {issue.get(\"name\", \"?\")} (ファイル: {issue.get(\"file\", \"?\")})')
+"
+----
+
+. 移行対象を 3 つのカテゴリーに分類します。この分類が移行計画の基盤になります:
++
+[source,bash,role="execute"]
+----
+cat > /tmp/migration-plan.txt << 'EOF'
+=== 移行計画: tackle-order-mgmt ===
+
+【自動適用可能 (Konveyor AI 提案を使用)】
+- javax.* → jakarta.* のインポート置換
+- @Inject / CDI への EJB 置換
+- persistence.xml の Quarkus 設定への変換
+
+【手動対応が必要 (AI 提案 + コード修正)】
+- JMS → Reactive Messaging (SmallRye) への変換
+- JSF (@ManagedBean, @ViewScoped) → RESTful API への変換
+- @MessageDriven EJB → @Incoming Reactive Messaging への変換
+- JNDI ルックアップの CDI/設定ファイルへの置替
+
+【カスタムルール対応】
+- Module 3 で定義したカスタムパターン
+- 組織固有の命名規則違反の修正
+
+優先順位: 自動適用 → カスタムルール対応 → 手動 JMS/JSF 変換
+EOF
+
+cat /tmp/migration-plan.txt
+----
+
+image::module04-analysis-results.png[MTA 分析結果の画面,link=self,window=blank,width=700]
+
+=== 確認
+
+分析結果の解釈が正しくできていることを確認します。
+
+[source,bash,role="execute"]
+----
+# カテゴリー分類の確認
+echo "移行計画ファイルが作成されているか確認:"
+ls -la /tmp/migration-plan.txt
+
+echo ""
+echo "分析結果の要約:"
+curl -s -u {user}:{password} \
+  "{mta_url}/hub/applications/$APP_ID/analysis/issues" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+issues = data if isinstance(data, list) else data.get('issues', [])
+total = len(issues)
+high = sum(1 for i in issues if i.get('effort', 0) >= 5)
+medium = sum(1 for i in issues if 2 <= i.get('effort', 0) < 5)
+low = sum(1 for i in issues if 0 < i.get('effort', 0) < 2)
+print(f'合計: {total} 件 | 高: {high} 件 | 中: {medium} 件 | 低: {low} 件')
+print('分析結果の解釈が完了しました。')
+"
+----
+
+== エクササイズ 3: AI 提案の適用と手動コード修正
+
+いよいよコードの変換です。Konveyor AI の提案を使って自動化できる部分を適用し、JMS から Reactive Messaging、JSF から RESTful API への変換は手動で仕上げます。
+
+=== 前提条件
+
+* エクササイズ 2 で移行計画が整理されていること
+* Dev Spaces の VS Code エディタが開いていること
+
+=== ステップ 1: Konveyor AI 提案の適用
+
+. VS Code で tackle-order-mgmt プロジェクトを開きます:
++
+[source,bash,role="execute"]
+----
+code /projects/tackle-order-mgmt
+----
+
+. Konveyor AI プラグインのサイドパネルを開きます。左サイドバーの Konveyor アイコンをクリックし、分析結果が表示されていることを確認します。
+
+. 「Apply All Suggestions」または個別の提案を選択して `javax.*` → `jakarta.*` のインポート置換を適用します。コマンドパレット (`Ctrl+Shift+P`) から `Konveyor: Apply Fix` を実行します。
+
+. 適用後、変更が正しく行われているかを確認します:
++
+[source,bash,role="execute"]
+----
+cd /projects/tackle-order-mgmt
+
+# javax.* が残っていないか確認 (JMS/JSF 以外)
+grep -rn "import javax\." --include="*.java" . | \
+  grep -v "javax\.jms\|javax\.faces" | \
+  head -20
+----
++
+JMS と JSF 以外の `javax.*` インポートがなければ、自動置換は完了です。
+
+=== ステップ 2: JMS から Reactive Messaging への変換
+
+JMS を使ったメッセージングは Quarkus では SmallRye Reactive Messaging に置き換えます。手動での変換パターンを実践します。
+
+. まず、既存の JMS コードを確認します:
++
+[source,bash,role="execute"]
+----
+find /projects/tackle-order-mgmt -name "*.java" | \
+  xargs grep -l "javax.jms\|@MessageDriven\|@JMSConnectionFactory" 2>/dev/null
+----
+
+. 検出されたファイルの内容を確認します（例: `OrderMessageProcessor.java`）:
++
+[source,bash,role="execute"]
+----
+# 実際のファイルパスに合わせて変更してください
+cat /projects/tackle-order-mgmt/src/main/java/com/example/order/OrderMessageProcessor.java
+----
+
+. JMS の `@MessageDriven` EJB を Reactive Messaging の `@Incoming` に変換します。変換後のコードパターンは以下の通りです:
++
+[source,java]
+----
+// 変換前: JMS @MessageDriven EJB
+@MessageDriven(activationConfig = {
+    @ActivationConfigProperty(propertyName = "destination",
+                              propertyValue = "queue/orders"),
+    @ActivationConfigProperty(propertyName = "destinationType",
+                              propertyValue = "javax.jms.Queue")
+})
+public class OrderMessageProcessor implements MessageListener {
+    @Override
+    public void onMessage(Message message) {
+        // 注文処理ロジック
+    }
+}
+
+// 変換後: Quarkus Reactive Messaging
+@ApplicationScoped
+public class OrderMessageProcessor {
+
+    @Incoming("orders")
+    public void processOrder(String orderJson) {
+        // 注文処理ロジック (同一のビジネスロジック)
+    }
+}
+----
+
+. `application.properties` に Reactive Messaging のチャンネル設定を追加します:
++
+[source,bash,role="execute"]
+----
+cat >> /projects/tackle-order-mgmt/src/main/resources/application.properties << 'EOF'
+
+# Reactive Messaging チャンネル設定
+mp.messaging.incoming.orders.connector=smallrye-in-memory
+mp.messaging.incoming.orders.broadcast=true
+EOF
+----
+
+. `pom.xml` に SmallRye Reactive Messaging の依存関係を追加します:
++
+[source,bash,role="execute"]
+----
+# Quarkus Reactive Messaging 拡張を追加
+cd /projects/tackle-order-mgmt
+./mvnw quarkus:add-extension -Dextensions="smallrye-reactive-messaging"
+----
+
+=== ステップ 3: JSF から RESTful API への変換
+
+JSF の `@ManagedBean` と `@ViewScoped` は Quarkus では JAX-RS (RESTEasy) に置き換えます。
+
+. JSF を使っているファイルを確認します:
++
+[source,bash,role="execute"]
+----
+find /projects/tackle-order-mgmt -name "*.java" | \
+  xargs grep -l "javax.faces\|@ManagedBean\|@ViewScoped" 2>/dev/null
+----
+
+. JSF ManagedBean を JAX-RS Resource クラスに変換します。変換パターンを確認します:
++
+[source,java]
+----
+// 変換前: JSF ManagedBean
+@ManagedBean
+@ViewScoped
+public class OrderBean implements Serializable {
+    private List<Order> orders;
+
+    public List<Order> getOrders() {
+        return orderService.findAll();
+    }
+
+    public void createOrder(Order order) {
+        orderService.create(order);
+    }
+}
+
+// 変換後: JAX-RS Resource
+@Path("/api/orders")
+@Produces(MediaType.APPLICATION_JSON)
+@Consumes(MediaType.APPLICATION_JSON)
+@ApplicationScoped
+public class OrderResource {
+
+    @Inject
+    OrderService orderService;
+
+    @GET
+    public List<Order> getOrders() {
+        return orderService.findAll();
+    }
+
+    @POST
+    public Response createOrder(Order order) {
+        orderService.create(order);
+        return Response.status(201).build();
+    }
+}
+----
+
+. RESTEasy 拡張が pom.xml に含まれているか確認し、必要に応じて追加します:
++
+[source,bash,role="execute"]
+----
+cd /projects/tackle-order-mgmt
+
+# RESTEasy JAX-RS 拡張を確認・追加
+grep -q "quarkus-resteasy-reactive-jackson" pom.xml || \
+  ./mvnw quarkus:add-extension -Dextensions="resteasy-reactive-jackson"
+----
+
+=== ステップ 4: カスタムルール対応の修正
+
+. Module 3 で作成したカスタムルールが検出した問題を修正します:
++
+[source,bash,role="execute"]
+----
+# カスタムルールで検出された問題のファイルを確認
+curl -s -u {user}:{password} \
+  "{mta_url}/hub/applications/$APP_ID/analysis/issues" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+issues = data if isinstance(data, list) else data.get('issues', [])
+
+print('=== カスタムルールの検出結果と修正対象 ===')
+for issue in issues:
+    ruleset = issue.get('ruleSet', '')
+    if 'custom' in ruleset.lower() or 'legacy-java-japan' in ruleset.lower():
+        print(f'  ファイル: {issue.get(\"file\", \"?\")}')
+        print(f'  問題: {issue.get(\"name\", \"?\")}')
+        print(f'  対処: {issue.get(\"description\", \"?\")[:100]}')
+        print()
+"
+----
+
+. 修正が完了したら、変更の差分を確認します:
++
+[source,bash,role="execute"]
+----
+cd /projects/tackle-order-mgmt
+git diff --stat
+----
+
+=== 確認
+
+コード変換が正しく完了していることを確認します。
+
+[source,bash,role="execute"]
+----
+cd /projects/tackle-order-mgmt
+
+echo "=== javax.* 残存チェック (JMS/JSF を除く) ==="
+REMAINING=$(grep -rn "import javax\." --include="*.java" . | \
+  grep -v "javax\.jms\|javax\.faces" | wc -l)
+echo "残存件数: $REMAINING 件"
+
+echo ""
+echo "=== Reactive Messaging アノテーション確認 ==="
+grep -rn "@Incoming\|@Outgoing" --include="*.java" . | head -10
+
+echo ""
+echo "=== JAX-RS Resource クラス確認 ==="
+grep -rn "@Path" --include="*.java" . | head -10
+
+if [ "$REMAINING" -eq 0 ]; then
+  echo ""
+  echo "自動変換の適用が完了しています。手動修正の確認も済んでいればビルドに進めます。"
+fi
+----
+
+== エクササイズ 4: 移行アプリのビルド・デプロイ・検証
+
+すべてのコード変換が完了しました。最終ステップは、移行後のアプリケーションをビルドし、OpenShift にデプロイして実際に動作することを確認することです。
+
+=== ステップ 1: Quarkus ビルド
+
+. まず、ローカルでビルドを実行してコンパイルエラーがないことを確認します:
++
+[source,bash,role="execute"]
+----
+cd /projects/tackle-order-mgmt
+./mvnw compile -q 2>&1 | tail -20
+----
++
+エラーが表示された場合は、エラーメッセージを確認して該当ファイルを修正します。
+
+. ユニットテストを実行します:
++
+[source,bash,role="execute"]
+----
+cd /projects/tackle-order-mgmt
+./mvnw test -q 2>&1 | tail -30
+----
+
+. コンテナイメージのビルド用に Quarkus アプリを JAR としてパッケージします:
++
+[source,bash,role="execute"]
+----
+cd /projects/tackle-order-mgmt
+./mvnw package -DskipTests -Dquarkus.package.type=fast-jar 2>&1 | tail -20
+----
++
+`BUILD SUCCESS` が表示されれば、ビルド完了です。
+
+. ビルドが正常に完了したことを確認します:
++
+[source,bash,role="execute"]
+----
+ls -lh /projects/tackle-order-mgmt/target/quarkus-app/
+----
++
+`quarkus-run.jar` が存在すれば成功です。
+
+image::module04-quarkus-build-success.png[Quarkus ビルド成功の画面,link=self,window=blank,width=700]
+
+=== ステップ 2: OpenShift へのデプロイ
+
+. OpenShift にログインします:
++
+[source,bash,role="execute"]
+----
+oc login {api_url} -u {user} -p {password} --insecure-skip-tls-verify
+----
+
+. 移行後アプリ用の Project を作成します:
++
+[source,bash,role="execute"]
+----
+oc new-project order-mgmt-quarkus-{user}
+----
+
+. Quarkus アプリケーションを OpenShift Source-to-Image (S2I) でデプロイします:
++
+[source,bash,role="execute"]
+----
+oc new-app \
+  --name=order-mgmt \
+  --strategy=docker \
+  https://github.com/konveyor/tackle-testapp-public#order-management \
+  -n order-mgmt-quarkus-{user}
+----
+
+. ビルドログを確認します:
++
+[source,bash,role="execute"]
+----
+oc logs -f bc/order-mgmt -n order-mgmt-quarkus-{user}
+----
++
+`Push successful` が表示されたら `Ctrl+C` でログ追尾を終了します。
+
+. アプリケーションに外部からアクセスできるように Route を公開します:
++
+[source,bash,role="execute"]
+----
+oc expose svc/order-mgmt -n order-mgmt-quarkus-{user}
+----
+
+. Route の URL を確認します:
++
+[source,bash,role="execute"]
+----
+oc get route order-mgmt -n order-mgmt-quarkus-{user} \
+  -o jsonpath='{.spec.host}'
+echo ""
+----
+
+=== ステップ 3: 動作確認
+
+. デプロイが完了するまで Pod の起動を待ちます:
++
+[source,bash,role="execute"]
+----
+oc rollout status deployment/order-mgmt -n order-mgmt-quarkus-{user} --timeout=5m
+----
+
+. アプリケーションのヘルスチェックエンドポイントを確認します:
++
+[source,bash,role="execute"]
+----
+ROUTE_URL=$(oc get route order-mgmt -n order-mgmt-quarkus-{user} \
+  -o jsonpath='{.spec.host}')
+
+curl -s https://$ROUTE_URL/q/health | python3 -m json.tool
+----
++
+`"status": "UP"` が返れば、アプリケーションは正常に起動しています。
+
+. 移行した REST API が動作することを確認します:
++
+[source,bash,role="execute"]
+----
+ROUTE_URL=$(oc get route order-mgmt -n order-mgmt-quarkus-{user} \
+  -o jsonpath='{.spec.host}')
+
+# 注文一覧 API の確認
+echo "=== 注文一覧 API ==="
+curl -s https://$ROUTE_URL/api/orders | python3 -m json.tool | head -20
+
+# テスト注文の作成
+echo ""
+echo "=== テスト注文の作成 ==="
+curl -s -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"productId": "PROD-001", "quantity": 2, "customerId": "CUST-100"}' \
+  https://$ROUTE_URL/api/orders
+----
+
+. Quarkus の Dev UI でアプリケーション情報を確認します（開発モードで起動している場合）:
++
+[source,bash,role="execute"]
+----
+ROUTE_URL=$(oc get route order-mgmt -n order-mgmt-quarkus-{user} \
+  -o jsonpath='{.spec.host}')
+
+echo "アプリケーション URL: https://$ROUTE_URL"
+echo "ヘルス確認: https://$ROUTE_URL/q/health"
+echo "メトリクス: https://$ROUTE_URL/q/metrics"
+----
+
+=== ステップ 4: 移行前後の比較
+
+. 移行前の Java EE アプリと移行後の Quarkus アプリを比較します:
++
+[source,bash,role="execute"]
+----
+echo "=== コード変換サマリー ==="
+echo ""
+echo "【移行前: Java EE】"
+echo "  - @MessageDriven EJB (JMS)"
+echo "  - @ManagedBean / @ViewScoped (JSF)"
+echo "  - javax.* API"
+echo "  - アプリケーションサーバー依存"
+echo ""
+echo "【移行後: Quarkus】"
+echo "  - @Incoming Reactive Messaging (SmallRye)"
+echo "  - @Path JAX-RS Resource (RESTEasy)"
+echo "  - jakarta.* API"
+echo "  - コンテナネイティブ、スタンドアロン実行"
+echo ""
+echo "=== リソース使用量の比較 ==="
+oc top pod -n order-mgmt-quarkus-{user}
+----
+
+=== 確認
+
+移行後のアプリケーションが完全に動作していることを包括的に確認します。
+
+[source,bash,role="execute"]
+----
+ROUTE_URL=$(oc get route order-mgmt -n order-mgmt-quarkus-{user} \
+  -o jsonpath='{.spec.host}')
+
+echo "=== 最終動作確認 ==="
+
+# ヘルスチェック
+HEALTH=$(curl -s https://$ROUTE_URL/q/health | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(data.get('status', 'UNKNOWN'))
+")
+echo "ヘルスステータス: $HEALTH"
+
+# API レスポンス確認
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://$ROUTE_URL/api/orders)
+echo "API レスポンスコード: $HTTP_CODE"
+
+if [ "$HEALTH" = "UP" ] && [ "$HTTP_CODE" = "200" ]; then
+  echo ""
+  echo "移行後アプリケーションの動作確認が完了しました。"
+  echo "Legacy Java Japan カンパニーの移行ワークフローが完成しました。"
+else
+  echo ""
+  echo "一部の確認が未完了です。ログを確認してください:"
+  echo "  oc logs deployment/order-mgmt -n order-mgmt-quarkus-{user} | tail -20"
+fi
+----
+
+image::module04-deployment-success.png[OpenShift デプロイ成功の画面,link=self,window=blank,width=700]
+
+=== よくある問題
+
+**問題**: `./mvnw compile` で `package does not exist` エラーが出る
+
+→ **解決方法**: インポートの置換が不完全な可能性があります。`javax.*` が残っていないか確認します:
++
+[source,bash,role="execute"]
+----
+grep -rn "import javax\." --include="*.java" /projects/tackle-order-mgmt/src | \
+  grep -v "jms\|faces"
+----
+
+**問題**: `oc new-app` で ImageStream が見つからないというエラーが出る
+
+→ **解決方法**: oc コマンドのバージョンと接続クラスターを確認します:
++
+[source,bash,role="execute"]
+----
+oc version
+oc whoami --show-server
+----
+
+**問題**: ヘルスチェックが `DOWN` を返す
+
+→ **解決方法**: Pod のログで起動エラーを確認します:
++
+[source,bash,role="execute"]
+----
+oc logs deployment/order-mgmt -n order-mgmt-quarkus-{user} | tail -30
+----
+
+== 学習成果チェックポイント
+
+このモジュールで実践したことを振り返りましょう。
+
+* **MTA 分析の実行（カスタムルール込み）**: EJB、JMS、JSF を含む複雑なアプリを対象に、Module 3 で作成したカスタムルールも含めて分析を実行しました
+* **分析結果の解釈**: 標準ルールとカスタムルールの検出結果を区別し、自動適用・手動対応・カスタムルール対応の 3 カテゴリーに分類しました
+* **AI 提案と手動修正の組み合わせ**: Konveyor AI の提案で `javax.*` 置換を自動化し、JMS から Reactive Messaging、JSF から RESTful API への変換は手動で完成させました
+* **ビルド・デプロイ・動作確認**: Quarkus でビルドし OpenShift にデプロイして、移行後のアプリが実際に動作することを確認しました
+
+これは単なる演習ではありません。Legacy Java Japan カンパニーが持つ数百のアプリケーションに対して、今日体験した一連のワークフローを繰り返し適用できます。カスタムルールが積み上がるほど分析精度が上がり、AI 提案の適用も加速します。
+
+== クリーンアップ（任意）
+
+ラボ環境のリソースを解放する場合は、以下のコマンドを実行します。
+
+[source,bash,role="execute"]
+----
+# OpenShift Project の削除
+oc delete project order-mgmt-quarkus-{user}
+
+# 一時ファイルの削除
+rm -f /tmp/migration-plan.txt
+----
+
+== モジュールまとめ
+
+このモジュールを完了しました。そして、このワークショップ全体を通じたジャーニーが完成しました。
+
+**このモジュールで達成したこと:**
+
+* 複数コンポーネント（EJB・JMS・JSF）を含む複雑な Java EE アプリに対して、カスタムルールを含む MTA 分析を自律的に実行した
+* 分析結果から移行計画を策定し、自動適用と手動修正の判断を主体的に行った
+* JMS から Reactive Messaging、JSF から JAX-RS への変換パターンを実践した
+* 移行後のアプリを Quarkus でビルドし、OpenShift に正常にデプロイした
+
+**このワークショップ全体での成長:**
+
+[cols="1,2",options="header"]
+|===
+|モジュール |習得したスキル
+
+|Module 1: Plugin 設定
+|Dev Spaces の環境構築、Konveyor AI プラグインの設定、MTA への接続
+
+|Module 2: サンプルアプリのマイグレーション
+|MTA 分析の実行、AI 提案の適用、Quarkus への移行の基本フロー
+
+|Module 3: カスタムルールの追加
+|YAML ルールの作成、MTA への登録、組織固有パターンの自動検出
+
+|Module 4: サンプルアプリ 2 のマイグレーション
+|複雑なアプリへの適用、全スキルの統合、自律的な移行ワークフローの実行
+|===
+
+**Legacy Java Japan カンパニーへの価値:**
+
+このワークショップで体験したワークフローを使えば、数百のアプリケーション移行プロジェクトに同じプロセスを適用できます。カスタムルールが組織ナレッジとして蓄積され、AI 提案の精度が上がり、移行の速度と品質が継続的に向上します。手動移行では何ヶ月もかかる作業が、この仕組みを使えば体系的に進められます。
+
+**次のステップ:**
+
+* link:https://konveyor.io/[Konveyor プロジェクト^] - オープンソースの移行ツール群
+* link:https://developers.redhat.com/products/mta/overview[Migration Toolkit for Applications 公式ドキュメント^]
+* link:https://quarkus.io/guides/[Quarkus ガイド^] - Reactive Messaging、RESTEasy などの詳細
+* link:https://access.redhat.com/documentation/ja-jp/red_hat_developer_hub/[Red Hat Developer Hub ドキュメント^]

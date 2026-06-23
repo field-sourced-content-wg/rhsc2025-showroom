@@ -1,0 +1,393 @@
+= モジュール 2: サンプルアプリのマイグレーション
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 1
+
+toc::[]
+
+モジュール 1 では、開発環境と Konveyor AI プラグインの接続を確立しました。いよいよ本番です。
+
+Legacy Java Japan カンパニーの上司から連絡が入りました。「パイロットの準備はできた。tackle-testapp を使って、Java EE から Quarkus への移行を実際にやってみてほしい。AI がどこまで使えるか確認したい。」
+
+このモジュールでは、実際の Java EE サンプルアプリケーション (tackle-testapp) に対して MTA 分析を実行します。Konveyor AI が提案する変更を確認し、コードを Quarkus 向けに書き換えます。最後にアプリをビルドして OpenShift にデプロイし、動作を確認します。
+
+== 学習目標
+
+このモジュールを完了すると、以下のことができるようになります:
+
+* Konveyor AI プラグインから MTA 分析を実行し、分析レポートを読み解く
+* AI が提案する移行パッチを確認し、EJB から CDI への変換など主要な変更を適用する
+* 移行後の Quarkus アプリケーションをビルドし、OpenShift にデプロイして動作確認する
+
+== 背景: Java EE から Quarkus への移行で何が変わるか
+
+tackle-testapp は Java EE の典型的な構成を持つアプリケーションです。Quarkus への移行では、次の変更が必要になります。
+
+* **EJB から CDI へ**: `@Stateless`、`@Stateful` などの EJB アノテーションは、CDI の `@ApplicationScoped`、`@RequestScoped` に置き換わります
+* **JAX-RS の調整**: エンドポイントの構成は基本的に互換性がありますが、Quarkus 固有の設定が必要な箇所があります
+* **pom.xml の依存関係**: Java EE の依存関係を Quarkus BOM と各種 Quarkus エクステンションに置き換えます
+* **設定ファイル**: `persistence.xml` などの設定は `application.properties` に統合されます
+
+MTA はこれらの変更箇所を自動的に検出し、Konveyor AI がコード変更の提案を生成します。
+
+== エクササイズ 1: MTA 分析の実行
+
+まず tackle-testapp に対して MTA 分析を実行し、Quarkus 移行に必要な作業を洗い出します。分析結果がこのあとのすべての作業の出発点になります。
+
+=== 前提条件
+
+* モジュール 1 で Dev Spaces ワークスペースが起動していること
+* Konveyor AI プラグインが MTA サーバーに接続済みであること
+
+=== 手順
+
+. Dev Spaces のターミナルで、tackle-testapp のプロジェクトディレクトリに移動します:
++
+[source,bash,role="execute"]
+----
+cd /projects/tackle-testapp
+ls -la
+----
++
+`pom.xml` と `src/` ディレクトリが表示されることを確認します。
+
+. プロジェクトの構成を把握するため、Java EE 関連のクラスを確認します:
++
+[source,bash,role="execute"]
+----
+find src -name "*.java" | sort
+----
+
+. VS Code のコマンドパレット (`Ctrl+Shift+P`) を開き、`Konveyor: Run Analysis` を実行します。
+
+. 分析設定ダイアログが表示されたら、以下の設定を選択します:
++
+[source,text]
+----
+Target: quarkus
+Source: java-ee
+----
+
+. 「Run Analysis」ボタンをクリックして分析を開始します。分析には 1〜3 分かかります。進捗は VS Code の下部ステータスバーで確認できます。
+
+. 分析が完了したら、ターミナルからも分析結果のサマリーを確認します:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} {mta_url}/hub/applications \
+  | python3 -c "
+import json, sys
+apps = json.load(sys.stdin)
+for app in apps:
+    print(f'アプリ: {app.get(\"name\", \"N/A\")} | ID: {app.get(\"id\", \"N/A\")}')
+"
+----
+
+. Konveyor のサイドパネルに切り替え、検出された問題 (Issues) の一覧を確認します。問題はカテゴリー別に整理されています:
++
+[source,text]
+----
+例: Mandatory / Optional / Potential
+----
+
+image::module02-mta-analysis-results.png[MTA 分析結果の一覧画面,link=self,window=blank,width=700]
+
+=== 確認
+
+分析が正常に完了したことを確認します。
+
+[source,bash,role="execute"]
+----
+# 分析結果ファイルの存在確認
+find /tmp -name "*.yaml" -path "*konveyor*" 2>/dev/null | head -5
+# または出力ディレクトリを確認
+ls -la /projects/tackle-testapp/.mta/ 2>/dev/null || echo "分析結果は Konveyor パネルから確認してください"
+----
+
+Konveyor のサイドパネルに「Mandatory」カテゴリーの問題が 1 件以上表示されていれば、分析は成功しています。
+
+=== よくある問題
+
+**問題**: 分析が開始されない、またはタイムアウトになる
+
+→ **解決方法**: MTA サーバーの状態を確認します:
++
+[source,bash,role="execute"]
+----
+curl -s -o /dev/null -w "%{http_code}" {mta_url}/hub/applications
+----
++
+`200` または `401` 以外が返る場合は、モジュール 1 のエクササイズ 3 に戻り接続確認を実行してください。
+
+**問題**: Issues パネルに何も表示されない
+
+→ **解決方法**: VS Code ウィンドウを再読み込みします (`Ctrl+Shift+P` → `Developer: Reload Window`)。その後、`Konveyor: View Issues` を再実行します。
+
+== エクササイズ 2: AI 提案によるコード変更の適用
+
+分析が完了しました。Konveyor AI が提案する変更を確認し、Java EE のコードを Quarkus 向けに書き換えます。EJB から CDI への変換、JAX-RS の調整、pom.xml の依存関係更新が主な作業です。
+
+=== 前提条件
+
+* エクササイズ 1 で MTA 分析が完了していること
+* Konveyor のサイドパネルに Issues が表示されていること
+
+=== 手順
+
+. Konveyor のサイドパネルで最初の Issue をクリックします。Issue の詳細と AI が提案する修正内容が表示されます。
+
+. 提案内容を確認したら「Apply Fix」ボタンをクリックして変更を適用します。変更された行はエディタ上でハイライト表示されます。
+
+. EJB アノテーションの変換を手動でも確認します。変換前後の典型的なパターンは次の通りです:
++
+[source,text]
+----
+変換前 (Java EE):
+import javax.ejb.Stateless;
+@Stateless
+public class SampleService { ... }
+
+変換後 (Quarkus / CDI):
+import javax.enterprise.context.ApplicationScoped;
+@ApplicationScoped
+public class SampleService { ... }
+----
+
+. JAX-RS のエントリポイントを確認します。Quarkus ではアプリケーションクラスが不要な場合があります:
++
+[source,bash,role="execute"]
+----
+find src -name "*.java" -exec grep -l "javax.ws.rs.core.Application\|ApplicationPath" {} \;
+----
++
+該当ファイルが見つかった場合、Konveyor の提案を参考に削除または修正します。
+
+. `pom.xml` を Quarkus 用に更新します。Konveyor AI の提案を適用した後、依存関係が正しく置き換わっているか確認します:
++
+[source,bash,role="execute"]
+----
+grep -E "quarkus|javax.ejb|javax.persistence" pom.xml | head -20
+----
+
+. Quarkus BOM と必要なエクステンションが追加されていない場合、ターミナルから追記します:
++
+[source,bash,role="execute"]
+----
+cd /projects/tackle-testapp
+./mvnw quarkus:add-extension -Dextensions="resteasy-reactive,hibernate-orm-panache,jdbc-postgresql"
+----
+
+. `application.properties` にデータソースの設定を追加します:
++
+[source,bash,role="execute"]
+----
+cat >> src/main/resources/application.properties << 'EOF'
+# Quarkus データソース設定
+quarkus.datasource.db-kind=h2
+quarkus.datasource.jdbc.url=jdbc:h2:mem:testapp;DB_CLOSE_DELAY=-1
+quarkus.hibernate-orm.database.generation=drop-and-create
+EOF
+----
+
+. 変更したファイルを保存し、Konveyor のサイドパネルで残りの Issues 数が減っていることを確認します。
+
+image::module02-ai-fix-applied.png[Konveyor AI が提案した修正を適用した画面,link=self,window=blank,width=700]
+
+=== 確認
+
+主要な変更が正しく適用されていることを確認します。
+
+[source,bash,role="execute"]
+----
+# EJB アノテーションが残っていないか確認
+grep -r "javax.ejb" src/ && echo "EJB 参照が残っています" || echo "EJB 参照はありません"
+
+# Quarkus 依存関係の確認
+grep -c "quarkus" pom.xml
+----
+
+`EJB 参照はありません` と表示され、`pom.xml` に複数の `quarkus` 参照があれば、コード変換は完了しています。
+
+=== よくある問題
+
+**問題**: `Apply Fix` ボタンをクリックしても変更が反映されない
+
+→ **解決方法**: ファイルが読み取り専用になっていないか確認します:
++
+[source,bash,role="execute"]
+----
+ls -la src/main/java/
+----
++
+パーミッションに問題がある場合は次を実行します:
++
+[source,bash,role="execute"]
+----
+chmod -R u+w /projects/tackle-testapp/src
+----
+
+**問題**: `mvnw` が見つからない
+
+→ **解決方法**: Maven Wrapper を使わず直接 Maven を実行します:
++
+[source,bash,role="execute"]
+----
+mvn quarkus:add-extension -Dextensions="resteasy-reactive,hibernate-orm-panache,jdbc-postgresql"
+----
+
+== エクササイズ 3: 移行後アプリのビルドとデプロイ
+
+コード変更が完了しました。最終ステップです。Quarkus に移行した tackle-testapp をビルドし、OpenShift にデプロイして、実際に動作することを確認します。
+
+=== 前提条件
+
+* エクササイズ 2 でコード変換が完了していること
+* OpenShift クラスターへのアクセスが可能であること
+
+=== 手順
+
+. まず OpenShift にログインします:
++
+[source,bash,role="execute"]
+----
+oc login {api_url} -u {user} -p {password} --insecure-skip-tls-verify
+----
+
+. デプロイ用の OpenShift プロジェクトを作成します:
++
+[source,bash,role="execute"]
+----
+oc new-project tackle-testapp-{user} --display-name="Tackle Testapp Migration"
+----
+
+. アプリケーションをビルドします。Quarkus の開発モードでまず動作を確認します:
++
+[source,bash,role="execute"]
+----
+cd /projects/tackle-testapp
+./mvnw clean package -DskipTests -q
+----
++
+`BUILD SUCCESS` と表示されることを確認します。ビルドには 2〜5 分かかります。
+
+. ビルドが成功したら、OpenShift にデプロイします。Quarkus の Kubernetes エクステンションを使います:
++
+[source,bash,role="execute"]
+----
+./mvnw quarkus:deploy \
+  -Dquarkus.kubernetes.deploy=true \
+  -Dquarkus.openshift.route.expose=true \
+  -DskipTests
+----
+
+. デプロイの進行状況を確認します:
++
+[source,bash,role="execute"]
+----
+oc rollout status deployment/tackle-testapp -n tackle-testapp-{user} --timeout=5m
+----
+
+. デプロイが完了したら、アプリケーションの URL を取得します:
++
+[source,bash,role="execute"]
+----
+oc get route tackle-testapp -n tackle-testapp-{user} -o jsonpath='{.spec.host}'
+----
+
+. 取得した URL にアクセスして、アプリケーションが正常に応答することを確認します:
++
+[source,bash,role="execute"]
+----
+APP_URL=$(oc get route tackle-testapp -n tackle-testapp-{user} -o jsonpath='{.spec.host}')
+curl -s -o /dev/null -w "HTTP ステータス: %{http_code}\n" http://${APP_URL}/
+----
++
+`HTTP ステータス: 200` が返れば、アプリケーションは正常に稼働しています。
+
+image::module02-app-deployed.png[OpenShift にデプロイされた Quarkus アプリケーション,link=self,window=blank,width=700]
+
+=== 確認
+
+アプリケーションのデプロイと動作を包括的に確認します。
+
+[source,bash,role="execute"]
+----
+# Pod の状態確認
+oc get pods -n tackle-testapp-{user}
+
+# アプリケーションのエンドポイント確認
+APP_URL=$(oc get route tackle-testapp -n tackle-testapp-{user} -o jsonpath='{.spec.host}')
+echo "アプリ URL: http://${APP_URL}"
+
+# ヘルスチェックエンドポイントの確認 (Quarkus デフォルト)
+curl -s http://${APP_URL}/q/health | python3 -m json.tool 2>/dev/null || \
+  curl -s -o /dev/null -w "メインエンドポイント ステータス: %{http_code}\n" http://${APP_URL}/
+----
+
+`Running` 状態の Pod が 1 件以上表示され、ヘルスチェックが `UP` または HTTP 200 を返せば、移行は完全に成功しています。
+
+=== よくある問題
+
+**問題**: `BUILD FAILURE` が発生する
+
+→ **解決方法**: エラーメッセージを確認し、残っている Java EE 参照を特定します:
++
+[source,bash,role="execute"]
+----
+./mvnw clean package -DskipTests 2>&1 | grep -E "ERROR|cannot find symbol" | head -20
+----
+
+**問題**: Pod が `CrashLoopBackOff` になる
+
+→ **解決方法**: Pod のログを確認します:
++
+[source,bash,role="execute"]
+----
+oc logs -l app=tackle-testapp -n tackle-testapp-{user} --tail=50
+----
++
+`application.properties` の設定 (特にデータソース) に問題がある場合が多いです。設定を見直してください。
+
+**問題**: `quarkus:deploy` コマンドが失敗する
+
+→ **解決方法**: コンテナイメージを手動でビルドして OpenShift にプッシュします:
++
+[source,bash,role="execute"]
+----
+# Dockerfile ベースのビルドに切り替え
+./mvnw clean package -DskipTests -Dquarkus.package.type=legacy-jar
+oc new-build --binary --name=tackle-testapp -n tackle-testapp-{user}
+oc start-build tackle-testapp --from-dir=. --follow -n tackle-testapp-{user}
+oc new-app tackle-testapp -n tackle-testapp-{user}
+oc expose svc/tackle-testapp -n tackle-testapp-{user}
+----
+
+== 学習成果チェックポイント
+
+このモジュールで取り組んだ内容を振り返りましょう。
+
+* **MTA 分析の実行**: Konveyor AI プラグインから tackle-testapp の分析を実行し、Java EE から Quarkus への移行で対処すべき箇所を洗い出しました
+* **AI 提案の確認と適用**: EJB から CDI へのアノテーション変換、JAX-RS の調整、`pom.xml` の依存関係更新など、主要な変更を AI の提案をもとに適用しました
+* **ビルドとデプロイの成功**: 移行後のアプリケーションをビルドし、OpenShift で正常に稼働することを確認しました
+
+Legacy Java Japan カンパニーの観点では、1 つのアプリケーションを手動で移行するのにかかる時間と比べて、MTA + Konveyor AI によってどれほど作業が効率化できるかを実感できたはずです。数百のアプリケーションに同じプロセスを適用するときの価値は計り知れません。
+
+== モジュールまとめ
+
+Java EE アプリケーションを Quarkus に移行する完全なサイクルを体験しました。分析、コード変換、デプロイ。この 3 ステップが AI 支援によってどれだけ短縮できるかを確認できたのではないでしょうか。
+
+**達成したこと:**
+
+* MTA による静的分析で移行箇所を自動検出した
+* Konveyor AI の提案をもとに、EJB/CDI/JAX-RS/pom.xml の変更を適用した
+* Quarkus アプリケーションとして OpenShift にデプロイし、動作確認した
+
+**Legacy Java Japan カンパニーへの価値:**
+
+* **移行速度の向上**: AI による提案で、手動分析にかかる時間を大幅に短縮できる
+* **品質の一貫性**: 同じ分析ルールを全アプリに適用することで、移行品質のばらつきを抑えられる
+* **リスクの低減**: 分析結果に基づいた計画的な移行により、予期しない問題を事前に検出できる
+
+**次のステップ:**
+
+モジュール 3 では、カスタムルールの作成に取り組みます。Legacy Java Japan カンパニー固有の技術スタックや社内ライブラリに対して、MTA が認識できる独自の移行ルールを追加します。標準ルールだけでカバーしきれない移行パターンに対応するスキルを習得します。

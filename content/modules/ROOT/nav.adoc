@@ -1,0 +1,15 @@
+* xref:index.adoc[はじめに]
+
+* xref:01-overview.adoc[ワークショップ概要]
+
+* xref:02-details.adoc[ワークショップ詳細]
+
+* xref:03-module-01-plugin-setup.adoc[Module 1: Plugin 設定]
+
+* xref:04-module-02-sample-app-migration.adoc[Module 2: サンプルアプリのマイグレーション]
+
+* xref:05-module-03-custom-rules.adoc[Module 3: カスタムルールの追加]
+
+* xref:06-module-04-sample-app2-migration.adoc[Module 4: サンプルアプリ 2 のマイグレーション]
+
+* xref:99-conclusion.adoc[まとめと次のステップ]

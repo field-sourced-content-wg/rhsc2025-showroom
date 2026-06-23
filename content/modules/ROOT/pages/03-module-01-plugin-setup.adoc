@@ -1,0 +1,246 @@
+= モジュール 1: Plugin 設定
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 1
+
+toc::[]
+
+Legacy Java Japan カンパニーのシニア開発者として、あなたはチームを代表して大きな挑戦を任されています。数百の Java EE アプリケーションを Quarkus へ移行するプロジェクトのパイロットを担当することになりました。上司からのメッセージは明確です。「手動での移行は限界だ。MTA と Konveyor AI を使って、まずひとつのアプリで移行を自動化してみてほしい。」
+
+プレッシャーを感じながらも、あなたはその可能性に期待しています。まずは開発環境をセットアップし、Konveyor AI プラグインを IDE に接続することから始めましょう。ここで成功すれば、移行プロセス全体が大きく変わります。
+
+このモジュールでは、OpenShift Dev Spaces で開発環境を構築し、Konveyor AI (Developer Lightspeed) プラグインを MTA サーバーに接続するまでの手順を実践します。
+
+== 学習目標
+
+このモジュールを完了すると、以下のことができるようになります:
+
+* OpenShift Dev Spaces にアクセスし、ワークスペースを起動する
+* VS Code 拡張機能として Konveyor AI プラグインをインストールし設定する
+* MTA サーバーへの接続を確立し、分析が実行可能な状態であることを確認する
+
+== エクササイズ 1: Dev Spaces ワークスペースの起動
+
+Legacy Java Japan カンパニーの移行プロジェクトには、一貫した開発環境が欠かせません。まず OpenShift Dev Spaces にアクセスし、今回のラボで使用するワークスペースを起動します。
+
+. ブラウザで Dev Spaces のコンソールを開きます。URL は Showroom のタブから確認できます:
++
+[source,bash,role="execute"]
+----
+echo "Dev Spaces URL: {devspaces_url}"
+----
+
+. Dev Spaces のログイン画面が表示されたら、次の認証情報でログインします:
++
+[source,text]
+----
+ユーザー名: {user}
+パスワード: {password}
+----
+
+. ログイン後、「Create Workspace」ボタンをクリックします。
+
+. ワークスペース作成画面で、Git リポジトリの URL を入力します。今回のラボ用リポジトリは事前に準備されています:
++
+[source,text]
+----
+https://github.com/konveyor/tackle-testapp
+----
+
+. 「Create & Open」ボタンをクリックしてワークスペースを起動します。ワークスペースの初期化には 1〜2 分かかります。
+
+. ワークスペースが起動したら、画面左下の接続ステータスが「Connected」になっていることを確認します。
+
+image::module01-devspaces-workspace.png[Dev Spaces ワークスペースが起動した画面,link=self,window=blank,width=700]
+
+=== 確認
+
+ワークスペースが正常に起動したことを確認します。Dev Spaces 内のターミナルで次のコマンドを実行します:
+
+[source,bash,role="execute"]
+----
+echo "ワークスペース: $DEVWORKSPACE_NAME"
+pwd
+ls -la
+----
+
+`/projects/tackle-testapp` ディレクトリが存在し、Java プロジェクトのファイル構成が表示されれば成功です。
+
+== エクササイズ 2: Konveyor AI プラグインのインストールと設定
+
+ワークスペースが起動しました。次は、Migration Toolkit for Applications (MTA) の AI 機能を IDE から利用するために、Konveyor AI プラグインをインストールして設定します。このプラグインが Legacy Java Japan カンパニーの移行加速の鍵になります。
+
+=== 前提条件
+
+* エクササイズ 1 で Dev Spaces ワークスペースが起動していること
+* MTA サーバーの URL が手元にあること
+
+=== 手順
+
+. Dev Spaces の VS Code エディタで、左サイドバーの「Extensions」アイコン (四角が4つ並んだアイコン) をクリックします。
+
+. 検索バーに `Konveyor` と入力して拡張機能を検索します。
+
+. 検索結果に「Konveyor」が表示されたら「Install」ボタンをクリックします。インストールには数十秒かかります。
+
+. インストール完了後、コマンドパレットを開きます (`Ctrl+Shift+P` または `F1`):
++
+[source,bash,role="execute"]
+----
+echo "コマンドパレットのショートカット: Ctrl+Shift+P"
+----
+
+. コマンドパレットに `Konveyor: Configure` と入力し、設定コマンドを選択します。
+
+. 設定画面が開いたら、MTA サーバーの URL を入力します。MTA のエンドポイント URL は次のコマンドで取得できます:
++
+[source,bash,role="execute"]
+----
+echo "MTA URL: {mta_url}"
+----
+
+. 設定フォームに以下の情報を入力します:
++
+[source,text]
+----
+MTA Hub URL: {mta_url}
+----
+
+. 「Save」または「Apply」ボタンをクリックして設定を保存します。
+
+. プラグインの設定ファイルが正しく作成されたことをターミナルで確認します:
++
+[source,bash,role="execute"]
+----
+cat ~/.vscode-server/data/User/settings.json | grep -i konveyor
+----
+
+image::module01-konveyor-plugin-settings.png[Konveyor AI プラグインの設定画面,link=self,window=blank,width=700]
+
+=== 確認
+
+プラグインの設定が正常に完了したことを確認します。
+
+. VS Code のステータスバーを確認します。Konveyor アイコンが表示されていれば、プラグインが有効になっています。
+
+. コマンドパレット (`Ctrl+Shift+P`) を開き、`Konveyor` と入力します。Konveyor 関連のコマンドが複数表示されれば、プラグインが正常にインストールされています:
++
+[source,text]
+----
+Konveyor: Configure
+Konveyor: Run Analysis
+Konveyor: View Issues
+----
+
+=== よくある問題
+
+**問題**: 拡張機能マーケットプレイスに Konveyor が表示されない
+
+→ **解決方法**: Dev Spaces の設定でカスタム拡張機能リポジトリが有効になっているか確認します。ターミナルで次を実行し、接続を確認してください:
++
+[source,bash,role="execute"]
+----
+curl -s --max-time 5 https://open-vsx.org/api/-/search?query=konveyor | grep -o '"name":"[^"]*"' | head -5
+----
+
+**問題**: 設定を保存しても MTA URL が反映されない
+
+→ **解決方法**: VS Code ウィンドウを再読み込みします (`Ctrl+Shift+P` → `Developer: Reload Window`)。
+
+== エクササイズ 3: MTA サーバーとの接続確認
+
+プラグインの設定が完了しました。いよいよ MTA サーバーとの接続を確認します。Legacy Java Japan カンパニーの移行プロジェクトでは、MTA が分析の中心的な役割を担います。接続が確立できれば、いつでも AI 支援による移行分析を開始できます。
+
+=== 手順
+
+. まず、MTA サーバーが稼働していることをコマンドラインから確認します:
++
+[source,bash,role="execute"]
+----
+curl -s -o /dev/null -w "%{http_code}" {mta_url}/hub/applications
+----
++
+HTTP ステータスコード `200` または `401` が返れば、サーバーは正常に稼働しています (`401` は認証が必要なことを示します)。
+
+. 次に、MTA サーバーへの認証付きアクセスを確認します:
++
+[source,bash,role="execute"]
+----
+curl -s -u {user}:{password} {mta_url}/hub/applications | python3 -m json.tool | head -20
+----
++
+アプリケーション一覧が JSON 形式で返ってくれば、接続と認証は成功です。
+
+. VS Code のコマンドパレット (`Ctrl+Shift+P`) を開き、`Konveyor: View Issues` を実行します。
+
+. Konveyor のサイドパネルが開き、MTA サーバーからのデータが表示されることを確認します。
+
+. プラグインから簡単な接続テストを実行します。コマンドパレットで `Konveyor: Configure` を選択し、設定画面で「Test Connection」ボタンをクリックします。
+
+. 「Connection successful」または同等のメッセージが表示されれば、すべての設定が正常です。
+
+image::module01-mta-connection-success.png[MTA サーバーへの接続成功画面,link=self,window=blank,width=700]
+
+=== 確認
+
+接続が確立されていることを包括的に確認します。
+
+[source,bash,role="execute"]
+----
+# MTA サーバーの稼働状態を確認
+curl -s -u {user}:{password} {mta_url}/hub/applications | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+if isinstance(data, list):
+    print(f'接続成功: {len(data)} 件のアプリケーションが登録されています')
+else:
+    print('接続成功: MTA サーバーに接続できました')
+"
+----
+
+アプリケーション件数が表示されれば、Konveyor AI プラグインから MTA サーバーへの接続が完全に確立されています。これで移行分析を開始する準備が整いました。
+
+=== よくある問題
+
+**問題**: `curl` コマンドが接続タイムアウトになる
+
+→ **解決方法**: MTA の URL が正しいか確認します。また、OpenShift コンソールで MTA の Pod が Running 状態になっているか確認してください:
++
+[source,bash,role="execute"]
+----
+oc get pods -n mta -l app=mta-hub
+----
+
+**問題**: 認証エラー (HTTP 403) が返る
+
+→ **解決方法**: ユーザー名とパスワードが正しいか確認します。Showroom のラボ情報から最新の認証情報を取得してください。
+
+== 学習成果チェックポイント
+
+このモジュールで学んだ内容を振り返りましょう。
+
+* **Dev Spaces ワークスペースの起動**: OpenShift Dev Spaces にアクセスし、Git リポジトリからワークスペースを作成しました
+* **Konveyor AI プラグインの設定**: VS Code 拡張機能として Konveyor AI をインストールし、MTA サーバーの URL を設定しました
+* **MTA サーバーとの接続確立**: API 経由で接続を確認し、プラグインから MTA サーバーへのアクセスを検証しました
+
+これらのスキルは Legacy Java Japan カンパニーの移行プロジェクト全体の基盤となります。開発環境と MTA の連携が確立できたことで、次のモジュールでは実際のアプリケーション移行分析に進めます。
+
+== モジュールまとめ
+
+環境のセットアップと接続確認を完了しました。「これは使えそうだ」と感じた瞬間があったなら、それは正しい直感です。
+
+**達成したこと:**
+
+* OpenShift Dev Spaces で一貫した開発環境を構築した
+* Konveyor AI (Developer Lightspeed) プラグインをインストールし設定した
+* MTA サーバーへの接続を確立し、分析の準備を整えた
+
+**Legacy Java Japan カンパニーへの価値:**
+
+* **環境の一貫性**: Dev Spaces により、すべての開発者が同じ環境で作業できる
+* **AI 支援の準備**: Konveyor AI プラグインを通じて、移行インサイトに即座にアクセスできる体制が整った
+* **スケーラビリティ**: この設定を他の開発者にも展開できるため、チーム全体の移行速度が上がる
+
+**次のステップ:**
+
+モジュール 2 では、実際の Java EE サンプルアプリケーションに対して MTA の分析を実行し、Quarkus への移行で対処すべき箇所を特定します。セットアップで培った基盤をフル活用する場面です。
