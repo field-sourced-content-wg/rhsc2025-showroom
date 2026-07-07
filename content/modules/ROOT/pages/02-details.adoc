@@ -100,6 +100,8 @@ oc whoami
 ----
 
 Password: `{bastion_ssh_password}`
+User Name: `{user}`
+password2: `{password}`
 
 [source,bash,role="execute"]
 ----
