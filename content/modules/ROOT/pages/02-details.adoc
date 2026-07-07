@@ -142,10 +142,8 @@ mta-hub-xxxxxxxx-xxxxx              1/1     Running   0          10m
 **問題**: `oc` コマンドで `Unauthorized` エラーが表示される +
 → **解決策**: 次のコマンドで再ログインしてください。クレデンシャルはワークショップ提供資料を参照してください。
 
-[source,bash,role="execute",subs="attributes"]
-----
-oc login --server={api_url} --username={user} --password={password}
-----
+[source,bash,role="execute"]
+ oc login --server={api_url} --username={user} --password={password}
 
 **問題**: Java サンプルアプリのビルドが失敗する +
 → **解決策**: DevSpaces のターミナルで `java -version` と `mvn -version` を実行し、Java 17 以降と Maven 3.8 以降がインストールされていることを確認してください。DevSpaces のワークスペース定義には必要なツールが含まれているため、通常は自動的に利用可能です。
