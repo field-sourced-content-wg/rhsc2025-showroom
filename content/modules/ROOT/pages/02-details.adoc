@@ -140,7 +140,7 @@ mta-hub-xxxxxxxx-xxxxx              1/1     Running   0          10m
 **問題**: `oc` コマンドで `Unauthorized` エラーが表示される +
 → **解決策**: 次のコマンドで再ログインしてください。クレデンシャルはワークショップ提供資料を参照してください。
 
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes"]
 ----
 oc login --server={api_url} --username={user} --password={password}
 ----
