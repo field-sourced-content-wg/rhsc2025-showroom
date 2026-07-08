@@ -16,6 +16,3 @@ asciidoc:
     ssh_user: lab-user
     openshift_console_url: https://console-openshift-console.apps.cluster-abc123.ocpv00.rhdp.net
     openshift_cluster_ingress_domain: apps.cluster-abc123.ocpv00.rhdp.net
-    user: user1
-    workloads:
-      - agnosticd.showroom.ocp4_workload_showroom_user_data_seed

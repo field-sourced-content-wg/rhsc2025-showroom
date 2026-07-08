@@ -16,3 +16,6 @@ tabs:
     url: 'https://console-embed-openshift-console.${DOMAIN}' 
   - name: DevSpaces
     url: 'https://devspaces.${DOMAIN}'
+  - name: Bastion ${USER}
+    path: /wetty
+    port: 443
