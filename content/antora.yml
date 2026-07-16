@@ -19,3 +19,5 @@ asciidoc:
     ocp_version: 4.21.22 # ワークショップを検証した際にバージョンを記載しておいてください。
 
     app_1_gitrepo_url: https://github.com/mnakagawrh/coolstore.git
+    mta_ui_internal_url: http://mta-ui.openshift-mta.svc.cluster.local:8080
+    mta_admin_password: workshop-admin!
