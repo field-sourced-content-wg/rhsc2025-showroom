@@ -49,14 +49,17 @@ echo "Dev Spaces URL: {devspaces_url}"
 
 . 「Create & Open」ボタンをクリックしてワークスペースを起動します。ワークスペースの初期化には 1〜2 分かかります。
 
-. 以下のような画面が出た場合は、「Continue」をクリックしてください。
+.. 以下のような画面が出た場合は、「Continue」をクリックしてください。
 
-image::images/popup_create_devspace.png
+image::images/module01-popup_create_devspace.png[Dev Spaces ワークスペース作成時のポップアップ, link=self,window=blank,width=700]
 
+.. ワークスペース起動時に以下の画面がでたら「Trust Publisher & Install」をクリックしてください。
 
-.. ワークスペースが起動したら、画面左下の接続ステータスが「Connected」になっていることを確認します。
+image::images/module01-popup_started_devspaces.png[Dev Spaces ワークスペース起動時のポップアップ, link=self,window=blank,width=700]
 
-image::module01-devspaces-workspace.png[Dev Spaces ワークスペースが起動した画面,link=self,window=blank,width=700]
+. ワークスペースが起動したら、画面左下の接続ステータスが「Connected」になっていることを確認します。
+
+image::images/module01-devspaces-workspace.png[Dev Spaces ワークスペースが起動した画面,link=self,window=blank,width=700]
 
 === 確認
 
