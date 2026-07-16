@@ -16,3 +16,6 @@ asciidoc:
     ssh_user: lab-user
     openshift_console_url: https://console-openshift-console.apps.cluster-abc123.ocpv00.rhdp.net
     openshift_cluster_ingress_domain: apps.cluster-abc123.ocpv00.rhdp.net
+    ocp_version: 4.21.22 # ワークショップを検証した際にバージョンを記載しておいてください。
+
+    app_1_gitrepo_url: https://github.com/mnakagawrh/coolstore.git

@@ -38,18 +38,23 @@ echo "Dev Spaces URL: {devspaces_url}"
 パスワード: {password}
 ----
 
-. ログイン後、「Create Workspace」ボタンをクリックします。
+. ログイン後、「Create Workspace」画面が開きます。
 
 . ワークスペース作成画面で、Git リポジトリの URL を入力します。今回のラボ用リポジトリは事前に準備されています:
 +
 [source,text]
 ----
-https://github.com/konveyor/tackle-testapp
+{app_1_gitrepo_url}
 ----
 
 . 「Create & Open」ボタンをクリックしてワークスペースを起動します。ワークスペースの初期化には 1〜2 分かかります。
 
-. ワークスペースが起動したら、画面左下の接続ステータスが「Connected」になっていることを確認します。
+. 以下のような画面が出た場合は、「Continue」をクリックしてください。
+
+image::images/popup_create_devspace.png
+
+
+.. ワークスペースが起動したら、画面左下の接続ステータスが「Connected」になっていることを確認します。
 
 image::module01-devspaces-workspace.png[Dev Spaces ワークスペースが起動した画面,link=self,window=blank,width=700]
 
