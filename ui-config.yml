@@ -12,7 +12,5 @@ view_switcher:
 #   - name: Terminal
 #     path: /terminal
 #     port: 443
-#   - name: OCP Console
+#   - name: OCP Console # 重要 OpenShift 側のセキュリティ強化のため、 iframe をつかった埋め込みのWebブラウザは呼べなくなりました。
 #     url: 'https://console-embed-openshift-console.${DOMAIN}' 
-#   - name: DevSpaces
-#     url: 'https://devspaces.${DOMAIN}'
