@@ -21,3 +21,6 @@ asciidoc:
     app_1_gitrepo_url: https://github.com/mnakagawrh/coolstore.git
     mta_ui_internal_url: http://mta-ui.openshift-mta.svc.cluster.local:8080
     mta_admin_password: workshop-admin!
+    # Generative AI (Developer Lightspeed) — デプロイ時に上書きする
+    genai_api_key: REPLACE_WITH_WORKSHOP_API_KEY
+    genai_model: gpt-4o
