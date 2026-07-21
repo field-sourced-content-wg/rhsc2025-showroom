@@ -133,15 +133,11 @@ echo "コマンドパレットのショートカット: Ctrl+Shift+P"
 
 image::module01-rhdl-configuration.png[Developer lightspeed 設定画面,link=self,window=blank,width=700]
 
-. プラグインの設定ファイルが正しく作成されたことをターミナルで確認します:
-+
-[source,bash,role="execute"]
-----
-cat ~/.vscode-server/data/User/settings.json | grep -i konveyor
-----
 
-image::module01-konveyor-plugin-settings.png[Konveyor AI プラグインの設定画面,link=self,window=blank,width=700]
+. 「Save」ボタンをクリックしたあと、右下に成功したことを示すメッセージが表示されることを確認してください。失敗した場合は認証情報や接続先の確認をしてください。
 
+image::module01-rhdl-success-configuration.png[Developer lightspeed 設定成功,link=self,window=blank,width=700]
+ 
 === 確認
 
 プラグインの設定が正常に完了したことを確認します。
