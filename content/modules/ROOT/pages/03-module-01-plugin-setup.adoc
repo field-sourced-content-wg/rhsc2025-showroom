@@ -72,6 +72,33 @@ ls -la
 
 `/projects/coolstore` ディレクトリが存在し、Java プロジェクトのファイル構成が表示されれば成功です。
 
+[source,bash,role="output-only"]
+---
+ワークスペース: openjdk-workspace
+/projects/coolstore
+total 148
+drwxr-sr-x. 8 user user  4096 Jul 21 07:48 .
+drwxrwsr-x. 4 root user  4096 Jul 21 07:50 ..
+drwxr-sr-x. 7 user user  4096 Jul 21 07:51 .git
+drwxr-sr-x. 3 user user  4096 Jul 21 07:48 .github
+-rw-r--r--. 1 user user    43 Jul 21 07:48 .gitignore
+-rw-r--r--. 1 user user   833 Jul 21 07:48 .project
+drwxr-sr-x. 3 user user  4096 Jul 21 07:52 .vscode
+-rwxr-xr-x. 1 user user  2339 Jul 21 07:48 01-setup.sh
+-rwxr-xr-x. 1 user user   987 Jul 21 07:48 02-build.sh
+-rwxr-xr-x. 1 user user  2359 Jul 21 07:48 03-deploy.sh
+-rwxr-xr-x. 1 user user   206 Jul 21 07:48 99-reset.sh
+-rw-r--r--. 1 user user  5331 Jul 21 07:48 README.md
+drwxr-sr-x. 2 user user  4096 Jul 21 07:48 assets
+drwxr-sr-x. 2 user user  4096 Jul 21 07:48 deploy
+-rw-r--r--. 1 user user  4578 Jul 21 07:48 devfile.yaml
+-rw-r--r--. 1 user user   202 Jul 21 07:48 keycloak.template.json
+-rw-r--r--. 1 user user  5978 Jul 21 07:48 pom.xml
+-rw-r--r--. 1 user user  1293 Jul 21 07:48 quarkus-deploy.md
+-rw-r--r--. 1 user user 59205 Jul 21 07:48 realm-export.json
+drwxr-sr-x. 3 user user  4096 Jul 21 07:48 src
+---
+
 == エクササイズ 2: Konveyor AI プラグインのインストールと設定
 
 ワークスペースが起動しました。次は、Migration Toolkit for Applications (MTA) の AI 機能を IDE から利用するために、Konveyor AI プラグインをインストールして設定します。このプラグインが Legacy Java Japan カンパニーの移行加速の鍵になります。
