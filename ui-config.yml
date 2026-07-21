@@ -8,11 +8,11 @@ view_switcher:
   enabled: true
   default_mode: split
 
-tabs:
-  - name: Terminal
-    path: /terminal
-    port: 443
-  - name: OCP Console
-    url: 'https://console-embed-openshift-console.${DOMAIN}' 
-  - name: DevSpaces
-    url: 'https://devspaces.${DOMAIN}'
+# tabs:
+#   - name: Terminal
+#     path: /terminal
+#     port: 443
+#   - name: OCP Console
+#     url: 'https://console-embed-openshift-console.${DOMAIN}' 
+#   - name: DevSpaces
+#     url: 'https://devspaces.${DOMAIN}'
