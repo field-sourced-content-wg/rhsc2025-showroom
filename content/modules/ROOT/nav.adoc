@@ -10,6 +10,4 @@
 
 * xref:05-module-03-custom-rules.adoc[Module 3: カスタムルールの追加]
 
-* xref:06-module-04-sample-app2-migration.adoc[Module 4: サンプルアプリ 2 のマイグレーション]
-
 * xref:99-conclusion.adoc[まとめと次のステップ]

@@ -7,9 +7,9 @@ toc::[]
 
 モジュール 1 では、開発環境と Red Hat Developer Lightspeed for MTA (以下、Developer Lightspeed) プラグインの接続を確立しました。いよいよ本番です。
 
-Legacy Java Japan カンパニーの上司から連絡が入りました。「パイロットの準備はできた。tackle-testapp を使って、Java EE から Quarkus への移行を実際にやってみてほしい。AI がどこまで使えるか確認したい。」
+Legacy Java Japan カンパニーの上司から連絡が入りました。「パイロットの準備はできた。coolstore を使って、Java EE から Quarkus への移行を実際にやってみてほしい。AI がどこまで使えるか確認したい。」
 
-このモジュールでは、実際の Java EE サンプルアプリケーション (tackle-testapp) に対してソースコードの静的解析を実行します。Developer Lightspeed が提案する変更を確認し、コードを Quarkus 向けに書き換えます。最後にアプリをビルドして OpenShift にデプロイし、動作を確認します。
+このモジュールでは、Java EE サンプルアプリケーション link:https://github.com/field-sourced-content-wg/coolstore/tree/rhsc2025-handson[coolstore^] に対してソースコードの静的解析を実行します。Developer Lightspeed が提案する変更を確認し、コードを Quarkus 向けに書き換えます。最後にリポジトリ同梱のスクリプトでビルド・OpenShift デプロイし、動作を確認します。
 
 == 学習目標
 
@@ -21,7 +21,7 @@ Legacy Java Japan カンパニーの上司から連絡が入りました。「�
 
 == 背景: Java EE から Quarkus への移行で何が変わるか
 
-tackle-testapp は Java EE の典型的な構成を持つアプリケーションです。Quarkus への移行では、次の変更が必要になります。
+coolstore は Java EE 7 のモノリシックアプリケーションです。EJB、JMS、JSF を含む典型的な構成を持ち、Quarkus への移行では次の変更が必要になります。
 
 * **EJB から CDI へ**: `@Stateless`、`@Stateful` などの EJB アノテーションは、CDI の `@ApplicationScoped`、`@RequestScoped` に置き換わります
 * **JAX-RS の調整**: エンドポイントの構成は基本的に互換性がありますが、Quarkus 固有の設定が必要な箇所があります
@@ -32,7 +32,7 @@ tackle-testapp は Java EE の典型的な構成を持つアプリケーショ�
 
 == エクササイズ 1: ソースコードの静的解析の実行
 
-まず tackle-testapp に対してソースコードの静的解析を実行し、Quarkus 移行に必要な作業を洗い出します。解析結果がこのあとのすべての作業の出発点になります。
+まず coolstore に対してソースコードの静的解析を実行し、Quarkus 移行に必要な作業を洗い出します。解析結果がこのあとのすべての作業の出発点になります。
 
 === 前提条件
 
@@ -41,15 +41,17 @@ tackle-testapp は Java EE の典型的な構成を持つアプリケーショ�
 
 === 手順
 
-. Dev Spaces のターミナルで、coolstore のプロジェクトディレクトリに居ることを確認します:
+. Dev Spaces のターミナルで、coolstore のプロジェクトディレクトリ (`/projects/coolstore`) にいることを確認します:
 +
 [source,bash,role="execute"]
 ----
-cd /projects/tackle-testapp
+pwd
 ls -la
 ----
 +
 `pom.xml` と `src/` ディレクトリが表示されることを確認します。
++
+image::module02-devspaces-currentdir.png[カレントのディレクトリの状態を確認,link=self,window=blank,width=700]
 
 . プロジェクトの構成を把握するため、Java EE 関連のクラスを確認します:
 +
@@ -58,70 +60,45 @@ ls -la
 find src -name "*.java" | sort
 ----
 
+. VS Code のコマンドパレット (`Ctrl+Shift+P`) を開き、`MTA: Open Analysis View` を実行します。
++
+image::module02-open-analysisview.png[Analysis View を開いた画面,link=self,window=blank,width=700]
+
+. Analysis View の右上の `Start` ボタンを押し、起動を待ちます。
++
+image::module02-analysisview-push-start.png[Analysis View の Start ボタン,link=self,window=blank,width=700]
+
 . VS Code のコマンドパレット (`Ctrl+Shift+P`) を開き、`MTA: Run Analysis` を実行します。
-
-. 静的解析の設定ダイアログが表示されたら、以下の設定を選択します:
 +
-[source,text]
-----
-Target: quarkus
-Source: java-ee
-----
-
-. 「Run Analysis」ボタンをクリックして静的解析を開始します。解析には 1〜3 分かかります。進捗は VS Code の下部ステータスバーで確認できます。
-
-. 静的解析が完了したら、ターミナルからも解析結果のサマリーを確認します:
+image::module02-run-analysis.png[Run Analysis の実行,link=self,window=blank,width=700]
 +
-[source,bash,role="execute"]
-----
-curl -s -u {user}:{password} {mta_url}/hub/applications \
-  | python3 -c "
-import json, sys
-apps = json.load(sys.stdin)
-for app in apps:
-    print(f'アプリ: {app.get(\"name\", \"N/A\")} | ID: {app.get(\"id\", \"N/A\")}')
-"
-----
+解析には 1〜3 分かかります。進捗は Analysis View の進捗バーで確認できます。
++
+image::module02-analysisview-statusbar.png[Analysis View の進捗表示,link=self,window=blank,width=700]
 
-. Developer Lightspeed のサイドパネルに切り替え、検出された問題 (Issues) の一覧を確認します。問題はカテゴリー別に整理されています:
+. 静的解析が完了したら、Developer Lightspeed のサイドパネルに切り替え、検出された問題 (Issues) の一覧を確認します。問題はカテゴリー別に整理されています:
 +
 [source,text]
 ----
 例: Mandatory / Optional / Potential
 ----
-
++
 image::module02-mta-analysis-results.png[ソースコード静的解析結果の一覧画面,link=self,window=blank,width=700]
 
 === 確認
 
 静的解析が正常に完了したことを確認します。
+Developer Lightspeed のサイドパネルに問題が XX 件以上表示されていれば、静的解析は成功しています。
 
-[source,bash,role="execute"]
-----
-# 解析結果ファイルの存在確認
-find /tmp -name "*.yaml" -path "*konveyor*" 2>/dev/null | head -5
-# または出力ディレクトリを確認
-ls -la /projects/tackle-testapp/.mta/ 2>/dev/null || echo "解析結果は Developer Lightspeed パネルから確認してください"
-----
-
-Developer Lightspeed のサイドパネルに「Mandatory」カテゴリーの問題が 1 件以上表示されていれば、静的解析は成功しています。
+image::module02-analysisview-reuslt.png[Analysis View の解析結果,link=self,window=blank,width=700]
 
 === よくある問題
 
-**問題**: 静的解析が開始されない、またはタイムアウトになる
+**問題**: 静的解析結果が他の人に比べて少ない。
 
-→ **解決方法**: MTA サーバーの状態を確認します:
-+
-[source,bash,role="execute"]
-----
-curl -s -o /dev/null -w "%{http_code}" {mta_url}/hub/applications
-----
-+
-`200` または `401` 以外が返る場合は、モジュール 1 のエクササイズ 3 に戻り接続確認を実行してください。
+→ **解決方法**: Java のプラグインの状態を確認します。
 
-**問題**: Issues パネルに何も表示されない
-
-→ **解決方法**: VS Code ウィンドウを再読み込みします (`Ctrl+Shift+P` → `Developer: Reload Window`)。その後、`MTA: Open Analysis View` を再実行します。
+Lightweight mode になっていないかを確認します。
 
 == エクササイズ 2: AI 提案によるコード変更の適用
 
@@ -134,9 +111,9 @@ curl -s -o /dev/null -w "%{http_code}" {mta_url}/hub/applications
 
 === 手順
 
-. Developer Lightspeed のサイドパネルで最初の Issue をクリックします。Issue の詳細と AI が提案する修正内容が表示されます。
+. Developer Lightspeed のサイドパネルで最初の Issue をクリックします。Issue の詳細が表示されます。
 
-. 提案内容を確認したら「Apply Fix」ボタンをクリックして変更を適用します。変更された行はエディタ上でハイライト表示されます。
+. 詳細内容を確認したら「スパナ」アイコンをクリックして Developer Lightspeed に修正内容の提案を依頼します。提案の根拠や修正内容／方針などは Result View に表示されます。
 
 . EJB アノテーションの変換を手動でも確認します。変換前後の典型的なパターンは次の通りです:
 +
@@ -173,24 +150,14 @@ grep -E "quarkus|javax.ejb|javax.persistence" pom.xml | head -20
 +
 [source,bash,role="execute"]
 ----
-cd /projects/tackle-testapp
-./mvnw quarkus:add-extension -Dextensions="resteasy-reactive,hibernate-orm-panache,jdbc-postgresql"
+cd /projects/coolstore
+mvn quarkus:add-extension -Dextensions="resteasy-reactive,hibernate-orm-panache,jdbc-postgresql"
 ----
 
-. `application.properties` にデータソースの設定を追加します:
-+
-[source,bash,role="execute"]
-----
-cat >> src/main/resources/application.properties << 'EOF'
-# Quarkus データソース設定
-quarkus.datasource.db-kind=h2
-quarkus.datasource.jdbc.url=jdbc:h2:mem:testapp;DB_CLOSE_DELAY=-1
-quarkus.hibernate-orm.database.generation=drop-and-create
-EOF
-----
+. データソースと Keycloak の設定は、エクササイズ 3 の `01-setup.sh` が PostgreSQL と `keycloak.json` を用意します。ここではソースコード上の Issues 対応に集中してください。
 
 . 変更したファイルを保存し、Developer Lightspeed のサイドパネルで残りの Issues 数が減っていることを確認します。
-
++
 image::module02-ai-fix-applied.png[Developer Lightspeed が提案した修正を適用した画面,link=self,window=blank,width=700]
 
 === 確認
@@ -223,21 +190,18 @@ ls -la src/main/java/
 +
 [source,bash,role="execute"]
 ----
-chmod -R u+w /projects/tackle-testapp/src
+chmod -R u+w /projects/coolstore/src
 ----
 
-**問題**: `mvnw` が見つからない
+**問題**: `mvn` コマンドが見つからない
 
-→ **解決方法**: Maven Wrapper を使わず直接 Maven を実行します:
-+
-[source,bash,role="execute"]
-----
-mvn quarkus:add-extension -Dextensions="resteasy-reactive,hibernate-orm-panache,jdbc-postgresql"
-----
+→ **解決方法**: Dev Spaces ワークスペースを再起動するか、ターミナルで `which mvn` を実行して Maven が利用可能か確認してください。
+
+Issue がゼロ件になるまで繰り返してください。（`pom.xml` と `application.properties` を除く）
 
 == エクササイズ 3: 移行後アプリのビルドとデプロイ
 
-コード変更が完了しました。最終ステップです。Quarkus に移行した tackle-testapp をビルドし、OpenShift にデプロイして、実際に動作することを確認します。
+コード変更が完了しました。最終ステップです。Quarkus に移行した coolstore をビルドし、OpenShift にデプロイして、実際に動作することを確認します。
 
 === 前提条件
 
@@ -246,127 +210,50 @@ mvn quarkus:add-extension -Dextensions="resteasy-reactive,hibernate-orm-panache,
 
 === 手順
 
-. まず OpenShift にログインします:
+. coolstore リポジトリのルート (`/projects/coolstore`) に移動し、Keycloak と PostgreSQL のセットアップを実行します:
 +
 [source,bash,role="execute"]
 ----
-oc login {api_url} -u {user} -p {password} --insecure-skip-tls-verify
+cd /projects/coolstore
+./01-setup.sh
 ----
 
-. デプロイ用の OpenShift プロジェクトを作成します:
+. coolstore アプリケーションをビルドします。
 +
 [source,bash,role="execute"]
 ----
-oc new-project tackle-testapp-{user} --display-name="Tackle Testapp Migration"
-----
-
-. アプリケーションをビルドします。Quarkus の開発モードでまず動作を確認します:
-+
-[source,bash,role="execute"]
-----
-cd /projects/tackle-testapp
-./mvnw clean package -DskipTests -q
+./02-build.sh
 ----
 +
 `BUILD SUCCESS` と表示されることを確認します。ビルドには 2〜5 分かかります。
 
-. ビルドが成功したら、OpenShift にデプロイします。Quarkus の Kubernetes エクステンションを使います:
+. coolstore アプリケーションをデプロイします。
 +
 [source,bash,role="execute"]
 ----
-./mvnw quarkus:deploy \
-  -Dquarkus.kubernetes.deploy=true \
-  -Dquarkus.openshift.route.expose=true \
-  -DskipTests
-----
-
-. デプロイの進行状況を確認します:
-+
-[source,bash,role="execute"]
-----
-oc rollout status deployment/tackle-testapp -n tackle-testapp-{user} --timeout=5m
-----
-
-. デプロイが完了したら、アプリケーションの URL を取得します:
-+
-[source,bash,role="execute"]
-----
-oc get route tackle-testapp -n tackle-testapp-{user} -o jsonpath='{.spec.host}'
-----
-
-. 取得した URL にアクセスして、アプリケーションが正常に応答することを確認します:
-+
-[source,bash,role="execute"]
-----
-APP_URL=$(oc get route tackle-testapp -n tackle-testapp-{user} -o jsonpath='{.spec.host}')
-curl -s -o /dev/null -w "HTTP ステータス: %{http_code}\n" http://${APP_URL}/
+./03-deploy.sh
 ----
 +
-`HTTP ステータス: 200` が返れば、アプリケーションは正常に稼働しています。
-
-image::module02-app-deployed.png[OpenShift にデプロイされた Quarkus アプリケーション,link=self,window=blank,width=700]
+デプロイスクリプト完了時に表示される URL（`https://...`）も確認できます。
 
 === 確認
 
-アプリケーションのデプロイと動作を包括的に確認します。
-
-[source,bash,role="execute"]
-----
-# Pod の状態確認
-oc get pods -n tackle-testapp-{user}
-
-# アプリケーションのエンドポイント確認
-APP_URL=$(oc get route tackle-testapp -n tackle-testapp-{user} -o jsonpath='{.spec.host}')
-echo "アプリ URL: http://${APP_URL}"
-
-# ヘルスチェックエンドポイントの確認 (Quarkus デフォルト)
-curl -s http://${APP_URL}/q/health | python3 -m json.tool 2>/dev/null || \
-  curl -s -o /dev/null -w "メインエンドポイント ステータス: %{http_code}\n" http://${APP_URL}/
-----
-
-`Running` 状態の Pod が 1 件以上表示され、ヘルスチェックが `UP` または HTTP 200 を返せば、移行は完全に成功しています。
-
-=== よくある問題
-
-**問題**: `BUILD FAILURE` が発生する
-
-→ **解決方法**: エラーメッセージを確認し、残っている Java EE 参照を特定します:
+. デプロイが完了したら、アプリケーションの URL を取得します（プロジェクト `{user}-wk`、Route 名 `coolstore-quarkus`）:
 +
 [source,bash,role="execute"]
 ----
-./mvnw clean package -DskipTests 2>&1 | grep -E "ERROR|cannot find symbol" | head -20
+oc get route coolstore-quarkus -n {user}-wk -o jsonpath='{.spec.host}'
 ----
 
-**問題**: Pod が `CrashLoopBackOff` になる
-
-→ **解決方法**: Pod のログを確認します:
+. 取得した URL をブラウザの別のタブにアクセスして、アプリケーションが正常に応答することを確認します:
 +
-[source,bash,role="execute"]
-----
-oc logs -l app=tackle-testapp -n tackle-testapp-{user} --tail=50
-----
-+
-`application.properties` の設定 (特にデータソース) に問題がある場合が多いです。設定を見直してください。
-
-**問題**: `quarkus:deploy` コマンドが失敗する
-
-→ **解決方法**: コンテナイメージを手動でビルドして OpenShift にプッシュします:
-+
-[source,bash,role="execute"]
-----
-# Dockerfile ベースのビルドに切り替え
-./mvnw clean package -DskipTests -Dquarkus.package.type=legacy-jar
-oc new-build --binary --name=tackle-testapp -n tackle-testapp-{user}
-oc start-build tackle-testapp --from-dir=. --follow -n tackle-testapp-{user}
-oc new-app tackle-testapp -n tackle-testapp-{user}
-oc expose svc/tackle-testapp -n tackle-testapp-{user}
-----
+image::module02-app-deployed.png[OpenShift にデプロイされた Quarkus アプリケーション,link=self,window=blank,width=700]
 
 == 学習成果チェックポイント
 
 このモジュールで取り組んだ内容を振り返りましょう。
 
-* **ソースコードの静的解析**: Developer Lightspeed プラグインから tackle-testapp の静的解析を実行し、Java EE から Quarkus への移行で対処すべき箇所を洗い出しました
+* **ソースコードの静的解析**: Developer Lightspeed プラグインから coolstore の静的解析を実行し、Java EE から Quarkus への移行で対処すべき箇所を洗い出しました
 * **AI 提案の確認と適用**: EJB から CDI へのアノテーション変換、JAX-RS の調整、`pom.xml` の依存関係更新など、主要な変更を AI の提案をもとに適用しました
 * **ビルドとデプロイの成功**: 移行後のアプリケーションをビルドし、OpenShift で正常に稼働することを確認しました
 

@@ -38,12 +38,17 @@ https://devspaces.{cluster_domain}[DevSpaces を開く, window=_blank]
 
 . ログイン後、「Create Workspace」画面が開きます。
 
-. ワークスペース作成画面で、Git リポジトリの URL を入力します。今回のラボ用リポジトリは事前に準備されています:
+. ワークスペース作成画面で、Git リポジトリの URL を入力します。今回のラボでは link:https://github.com/field-sourced-content-wg/coolstore/tree/rhsc2025-handson[coolstore^]（`rhsc2025-handson` ブランチ）を使用します:
 +
 [source,text,subs="attributes+"]
 ----
 {app_1_gitrepo_url}
 ----
++
+[NOTE]
+====
+Dev Spaces がブランチを指定できる場合は `rhsc2025-handson` を選択してください。起動後に左下の Git ブランチ名が `rhsc2025-handson` であることも確認します（次の手順）。
+====
 
 . 「Create & Open」ボタンをクリックしてワークスペースを起動します。ワークスペースの初期化には 1〜2 分かかります。
 

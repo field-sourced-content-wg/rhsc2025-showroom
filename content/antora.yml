@@ -18,7 +18,7 @@ asciidoc:
     openshift_cluster_ingress_domain: apps.cluster-abc123.ocpv00.rhdp.net
     ocp_version: 4.21.22 # ワークショップを検証した際にバージョンを記載しておいてください。
 
-    app_1_gitrepo_url: https://github.com/mnakagawrh/coolstore.git
+    app_1_gitrepo_url: https://github.com/field-sourced-content-wg/coolstore.git
     mta_ui_internal_url: http://mta-ui.openshift-mta.svc.cluster.local:8080
     mta_admin_password: workshop-admin!
     # Generative AI (Developer Lightspeed) — デプロイ時に上書きする
