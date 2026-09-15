@@ -5,17 +5,17 @@
 
 toc::[]
 
-モジュール 1 では、開発環境と Konveyor AI プラグインの接続を確立しました。いよいよ本番です。
+モジュール 1 では、開発環境と Red Hat Developer Lightspeed for MTA (以下、Developer Lightspeed) プラグインの接続を確立しました。いよいよ本番です。
 
 Legacy Java Japan カンパニーの上司から連絡が入りました。「パイロットの準備はできた。tackle-testapp を使って、Java EE から Quarkus への移行を実際にやってみてほしい。AI がどこまで使えるか確認したい。」
 
-このモジュールでは、実際の Java EE サンプルアプリケーション (tackle-testapp) に対して MTA 分析を実行します。Konveyor AI が提案する変更を確認し、コードを Quarkus 向けに書き換えます。最後にアプリをビルドして OpenShift にデプロイし、動作を確認します。
+このモジュールでは、実際の Java EE サンプルアプリケーション (tackle-testapp) に対してソースコードの静的解析を実行します。Developer Lightspeed が提案する変更を確認し、コードを Quarkus 向けに書き換えます。最後にアプリをビルドして OpenShift にデプロイし、動作を確認します。
 
 == 学習目標
 
 このモジュールを完了すると、以下のことができるようになります:
 
-* Konveyor AI プラグインから MTA 分析を実行し、分析レポートを読み解く
+* Developer Lightspeed プラグインからソースコードの静的解析を実行し、解析レポートを読み解く
 * AI が提案する移行パッチを確認し、EJB から CDI への変換など主要な変更を適用する
 * 移行後の Quarkus アプリケーションをビルドし、OpenShift にデプロイして動作確認する
 
@@ -28,20 +28,20 @@ tackle-testapp は Java EE の典型的な構成を持つアプリケーショ�
 * **pom.xml の依存関係**: Java EE の依存関係を Quarkus BOM と各種 Quarkus エクステンションに置き換えます
 * **設定ファイル**: `persistence.xml` などの設定は `application.properties` に統合されます
 
-MTA はこれらの変更箇所を自動的に検出し、Konveyor AI がコード変更の提案を生成します。
+ソースコードの静的解析でこれらの変更箇所を自動的に検出し、Developer Lightspeed がコード変更の提案を生成します。
 
-== エクササイズ 1: MTA 分析の実行
+== エクササイズ 1: ソースコードの静的解析の実行
 
-まず tackle-testapp に対して MTA 分析を実行し、Quarkus 移行に必要な作業を洗い出します。分析結果がこのあとのすべての作業の出発点になります。
+まず tackle-testapp に対してソースコードの静的解析を実行し、Quarkus 移行に必要な作業を洗い出します。解析結果がこのあとのすべての作業の出発点になります。
 
 === 前提条件
 
 * モジュール 1 で Dev Spaces ワークスペースが起動していること
-* Konveyor AI プラグインが MTA サーバーに接続済みであること
+* Developer Lightspeed プラグインが MTA サーバーに接続済みであること
 
 === 手順
 
-. Dev Spaces のターミナルで、tackle-testapp のプロジェクトディレクトリに移動します:
+. Dev Spaces のターミナルで、coolstore のプロジェクトディレクトリに居ることを確認します:
 +
 [source,bash,role="execute"]
 ----
@@ -58,9 +58,9 @@ ls -la
 find src -name "*.java" | sort
 ----
 
-. VS Code のコマンドパレット (`Ctrl+Shift+P`) を開き、`Konveyor: Run Analysis` を実行します。
+. VS Code のコマンドパレット (`Ctrl+Shift+P`) を開き、`MTA: Run Analysis` を実行します。
 
-. 分析設定ダイアログが表示されたら、以下の設定を選択します:
+. 静的解析の設定ダイアログが表示されたら、以下の設定を選択します:
 +
 [source,text]
 ----
@@ -68,9 +68,9 @@ Target: quarkus
 Source: java-ee
 ----
 
-. 「Run Analysis」ボタンをクリックして分析を開始します。分析には 1〜3 分かかります。進捗は VS Code の下部ステータスバーで確認できます。
+. 「Run Analysis」ボタンをクリックして静的解析を開始します。解析には 1〜3 分かかります。進捗は VS Code の下部ステータスバーで確認できます。
 
-. 分析が完了したら、ターミナルからも分析結果のサマリーを確認します:
+. 静的解析が完了したら、ターミナルからも解析結果のサマリーを確認します:
 +
 [source,bash,role="execute"]
 ----
@@ -83,32 +83,32 @@ for app in apps:
 "
 ----
 
-. Konveyor のサイドパネルに切り替え、検出された問題 (Issues) の一覧を確認します。問題はカテゴリー別に整理されています:
+. Developer Lightspeed のサイドパネルに切り替え、検出された問題 (Issues) の一覧を確認します。問題はカテゴリー別に整理されています:
 +
 [source,text]
 ----
 例: Mandatory / Optional / Potential
 ----
 
-image::module02-mta-analysis-results.png[MTA 分析結果の一覧画面,link=self,window=blank,width=700]
+image::module02-mta-analysis-results.png[ソースコード静的解析結果の一覧画面,link=self,window=blank,width=700]
 
 === 確認
 
-分析が正常に完了したことを確認します。
+静的解析が正常に完了したことを確認します。
 
 [source,bash,role="execute"]
 ----
-# 分析結果ファイルの存在確認
+# 解析結果ファイルの存在確認
 find /tmp -name "*.yaml" -path "*konveyor*" 2>/dev/null | head -5
 # または出力ディレクトリを確認
-ls -la /projects/tackle-testapp/.mta/ 2>/dev/null || echo "分析結果は Konveyor パネルから確認してください"
+ls -la /projects/tackle-testapp/.mta/ 2>/dev/null || echo "解析結果は Developer Lightspeed パネルから確認してください"
 ----
 
-Konveyor のサイドパネルに「Mandatory」カテゴリーの問題が 1 件以上表示されていれば、分析は成功しています。
+Developer Lightspeed のサイドパネルに「Mandatory」カテゴリーの問題が 1 件以上表示されていれば、静的解析は成功しています。
 
 === よくある問題
 
-**問題**: 分析が開始されない、またはタイムアウトになる
+**問題**: 静的解析が開始されない、またはタイムアウトになる
 
 → **解決方法**: MTA サーバーの状態を確認します:
 +
@@ -121,20 +121,20 @@ curl -s -o /dev/null -w "%{http_code}" {mta_url}/hub/applications
 
 **問題**: Issues パネルに何も表示されない
 
-→ **解決方法**: VS Code ウィンドウを再読み込みします (`Ctrl+Shift+P` → `Developer: Reload Window`)。その後、`Konveyor: View Issues` を再実行します。
+→ **解決方法**: VS Code ウィンドウを再読み込みします (`Ctrl+Shift+P` → `Developer: Reload Window`)。その後、`MTA: Open Analysis View` を再実行します。
 
 == エクササイズ 2: AI 提案によるコード変更の適用
 
-分析が完了しました。Konveyor AI が提案する変更を確認し、Java EE のコードを Quarkus 向けに書き換えます。EJB から CDI への変換、JAX-RS の調整、pom.xml の依存関係更新が主な作業です。
+静的解析が完了しました。Developer Lightspeed が提案する変更を確認し、Java EE のコードを Quarkus 向けに書き換えます。EJB から CDI への変換、JAX-RS の調整、pom.xml の依存関係更新が主な作業です。
 
 === 前提条件
 
-* エクササイズ 1 で MTA 分析が完了していること
-* Konveyor のサイドパネルに Issues が表示されていること
+* エクササイズ 1 でソースコードの静的解析が完了していること
+* Developer Lightspeed のサイドパネルに Issues が表示されていること
 
 === 手順
 
-. Konveyor のサイドパネルで最初の Issue をクリックします。Issue の詳細と AI が提案する修正内容が表示されます。
+. Developer Lightspeed のサイドパネルで最初の Issue をクリックします。Issue の詳細と AI が提案する修正内容が表示されます。
 
 . 提案内容を確認したら「Apply Fix」ボタンをクリックして変更を適用します。変更された行はエディタ上でハイライト表示されます。
 
@@ -160,9 +160,9 @@ public class SampleService { ... }
 find src -name "*.java" -exec grep -l "javax.ws.rs.core.Application\|ApplicationPath" {} \;
 ----
 +
-該当ファイルが見つかった場合、Konveyor の提案を参考に削除または修正します。
+該当ファイルが見つかった場合、Developer Lightspeed の提案を参考に削除または修正します。
 
-. `pom.xml` を Quarkus 用に更新します。Konveyor AI の提案を適用した後、依存関係が正しく置き換わっているか確認します:
+. `pom.xml` を Quarkus 用に更新します。Developer Lightspeed の提案を適用した後、依存関係が正しく置き換わっているか確認します:
 +
 [source,bash,role="execute"]
 ----
@@ -189,9 +189,9 @@ quarkus.hibernate-orm.database.generation=drop-and-create
 EOF
 ----
 
-. 変更したファイルを保存し、Konveyor のサイドパネルで残りの Issues 数が減っていることを確認します。
+. 変更したファイルを保存し、Developer Lightspeed のサイドパネルで残りの Issues 数が減っていることを確認します。
 
-image::module02-ai-fix-applied.png[Konveyor AI が提案した修正を適用した画面,link=self,window=blank,width=700]
+image::module02-ai-fix-applied.png[Developer Lightspeed が提案した修正を適用した画面,link=self,window=blank,width=700]
 
 === 確認
 
@@ -366,27 +366,27 @@ oc expose svc/tackle-testapp -n tackle-testapp-{user}
 
 このモジュールで取り組んだ内容を振り返りましょう。
 
-* **MTA 分析の実行**: Konveyor AI プラグインから tackle-testapp の分析を実行し、Java EE から Quarkus への移行で対処すべき箇所を洗い出しました
+* **ソースコードの静的解析**: Developer Lightspeed プラグインから tackle-testapp の静的解析を実行し、Java EE から Quarkus への移行で対処すべき箇所を洗い出しました
 * **AI 提案の確認と適用**: EJB から CDI へのアノテーション変換、JAX-RS の調整、`pom.xml` の依存関係更新など、主要な変更を AI の提案をもとに適用しました
 * **ビルドとデプロイの成功**: 移行後のアプリケーションをビルドし、OpenShift で正常に稼働することを確認しました
 
-Legacy Java Japan カンパニーの観点では、1 つのアプリケーションを手動で移行するのにかかる時間と比べて、MTA + Konveyor AI によってどれほど作業が効率化できるかを実感できたはずです。数百のアプリケーションに同じプロセスを適用するときの価値は計り知れません。
+Legacy Java Japan カンパニーの観点では、1 つのアプリケーションを手動で移行するのにかかる時間と比べて、MTA による静的解析と Developer Lightspeed によってどれほど作業が効率化できるかを実感できたはずです。数百のアプリケーションに同じプロセスを適用するときの価値は計り知れません。
 
 == モジュールまとめ
 
-Java EE アプリケーションを Quarkus に移行する完全なサイクルを体験しました。分析、コード変換、デプロイ。この 3 ステップが AI 支援によってどれだけ短縮できるかを確認できたのではないでしょうか。
+Java EE アプリケーションを Quarkus に移行する完全なサイクルを体験しました。静的解析、コード変換、デプロイ。この 3 ステップが AI 支援によってどれだけ短縮できるかを確認できたのではないでしょうか。
 
 **達成したこと:**
 
-* MTA による静的分析で移行箇所を自動検出した
-* Konveyor AI の提案をもとに、EJB/CDI/JAX-RS/pom.xml の変更を適用した
+* MTA によるソースコードの静的解析で移行箇所を自動検出した
+* Developer Lightspeed の提案をもとに、EJB/CDI/JAX-RS/pom.xml の変更を適用した
 * Quarkus アプリケーションとして OpenShift にデプロイし、動作確認した
 
 **Legacy Java Japan カンパニーへの価値:**
 
-* **移行速度の向上**: AI による提案で、手動分析にかかる時間を大幅に短縮できる
-* **品質の一貫性**: 同じ分析ルールを全アプリに適用することで、移行品質のばらつきを抑えられる
-* **リスクの低減**: 分析結果に基づいた計画的な移行により、予期しない問題を事前に検出できる
+* **移行速度の向上**: AI による提案で、手動でのコード調査にかかる時間を大幅に短縮できる
+* **品質の一貫性**: 同じ静的解析ルールを全アプリに適用することで、移行品質のばらつきを抑えられる
+* **リスクの低減**: 静的解析結果に基づいた計画的な移行により、予期しない問題を事前に検出できる
 
 **次のステップ:**
 
