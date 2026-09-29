@@ -5,11 +5,11 @@
 
 toc::[]
 
-モジュール 2 では MTA がサンプルアプリの問題箇所を自動検出し、Konveyor AI が移行コードを提案してくれることを確認しました。しかし、あなたは一つのことが気になっています。「Legacy Java Japan カンパニー独自のフレームワークは標準ルールに含まれていない。これでは移行が不完全になる。」
+モジュール 2 では MTA がサンプルアプリ link:https://github.com/spring-projects/spring-petclinic[spring-petclinic^] の問題箇所を自動検出し、Konveyor AI が移行コードを提案してくれることを確認しました。しかし、あなたは一つのことが気になっています。「Spring Boot から Quarkus への移行では、起動クラス・MVC・JPA が核心なのに、チーム向けの具体的な手順がルールに載っていない。これでは移行がブレる。」
 
 上司に報告したところ、返ってきた言葉はシンプルでした。「だったらルールを自分で作ればいい。」
 
-MTA はカスタムルールをサポートしています。社内フレームワーク固有の検出パターンを YAML で記述し、MTA に登録すれば、標準ルールと同じように分析に使えます。このモジュールでは、その仕組みを理解し、実際に Legacy Java Japan カンパニー向けのカスタムルールを作成して登録します。
+MTA はカスタムルールをサポートしています。Spring Boot → Quarkus 向けの検出パターンを YAML で記述し、MTA に登録すれば、標準ルールと同じように分析に使えます。このモジュールでは、その仕組みを理解し、PetClinic 向けのカスタムルールを作成して登録します。
 
 == 学習目標
 
@@ -21,11 +21,11 @@ MTA はカスタムルールをサポートしています。社内フレーム�
 
 == エクササイズ 1: MTA ルールエンジンの仕組み理解
 
-カスタムルールを作る前に、MTA がどのようにルールを処理するかを理解します。Legacy Java Japan カンパニーの移行ルールを正確に記述するには、ルールの構造を把握しておくことが大切です。
+カスタムルールを作る前に、MTA がどのようにルールを処理するかを理解します。Spring Boot → Quarkus の移行ルールを正確に記述するには、ルールの構造を把握しておくことが大切です。
 
 === MTA 組み込みルールセットの確認
 
-MTA には Java EE から Quarkus への移行に必要なルールがあらかじめ用意されています。まず、どのようなルールが組み込まれているかを確認します。
+MTA には各種移行に必要なルールがあらかじめ用意されています。まず、どのようなルールが組み込まれているかを確認します。
 
 . Dev Spaces のターミナルで、MTA API を使って利用可能なルールセットを一覧取得します:
 +
@@ -64,19 +64,19 @@ MTA のカスタムルールは YAML 形式で記述します。基本的な構�
 
 [source,yaml]
 ----
-- ruleID: example-rule-001
+- ruleID: java-spring-boot-application-annotation
   labels:
-    - konveyor.io/source=java-ee
+    - konveyor.io/source=springboot
     - konveyor.io/target=quarkus
   message: |-
-    `javax.ejb.Stateless` は Quarkus では `@ApplicationScoped` または `@Singleton` に置き換えてください。
-    詳細: https://quarkus.io/guides/cdi
+    `@SpringBootApplication` は Spring Boot 専用です。Quarkus では多くの場合起動クラスごと不要です。
+    詳細: https://quarkus.io/guides/lifecycle
   tag:
-    - EJB
-    - CDI
+    - SpringBoot
+    - Quarkus
   when:
     java.referenced:
-      pattern: javax.ejb.Stateless
+      pattern: org.springframework.boot.autoconfigure.SpringBootApplication
       location: ANNOTATION
 ----
 
@@ -98,24 +98,28 @@ when     : 検出条件 (java.referenced / xml / filecontent など)
 # Java クラス・アノテーションを検出
 when:
   java.referenced:
-    pattern: com.example.legacy.LogFactory
-    location: IMPORT
+    pattern: org.springframework.stereotype.Controller
+    location: ANNOTATION
 
-# XML 要素を検出
+# pom.xml の要素を検出
 when:
-  xml:
-    xpath: //*[local-name()='persistence-unit']
+  builtin.xml:
+    xpath: /m:project/m:parent[m:artifactId='spring-boot-starter-parent']
+    namespaces:
+      m: http://maven.apache.org/POM/4.0.0
+    filepaths:
+      - pom.xml
 
 # ファイル内の文字列パターンを検出
 when:
   filecontent:
-    pattern: "legacy\\.di\\.Container"
+    pattern: "SpringApplication\\.run"
     filePattern: "*.java"
 ----
 
 === 確認
 
-ルール構造を理解できたか確認します。次のコマンドを実行し、組み込みルールの `when` 条件タイプを集計します:
+ルール構造を理解できたか確認します。次のコマンドを実行し、組み込みルールセットを一覧します:
 
 [source,bash,role="execute"]
 ----
@@ -136,11 +140,12 @@ for rs in data:
 
 == エクササイズ 2: カスタムルールの作成
 
-Legacy Java Japan カンパニーには、標準ルールではカバーされない社内フレームワークが存在します。具体的には以下の 3 つです:
+PetClinic の Spring Boot → Quarkus 移行では、次の 4 点が特に重要です:
 
-* `ljj-logging`: 独自のロギングライブラリ (`com.ljj.logging.LJJLogger`)
-* `ljj-di`: カスタム DI コンテナ (`com.ljj.di.Container`, `@LJJInject`)
-* `ljj-config`: 設定管理フレームワーク (`com.ljj.config.AppConfig`)
+* 起動クラス: `@SpringBootApplication`
+* Web 層: `@Controller` (Spring MVC → JAX-RS)
+* HTTP マッピング: `@GetMapping` など
+* データ層: `JpaRepository` (→ Panache)
 
 これらを検出するカスタムルールセットを YAML で作成します。
 
@@ -155,101 +160,105 @@ Legacy Java Japan カンパニーには、標準ルールではカバーされ�
 +
 [source,bash,role="execute"]
 ----
-mkdir -p ~/ljj-custom-rules
-cd ~/ljj-custom-rules
+mkdir -p ~/petclinic-custom-rules
+cd ~/petclinic-custom-rules
 ----
 
-. Legacy Java Japan カンパニー向けカスタムルールファイルを作成します:
+. PetClinic 向け Spring Boot → Quarkus カスタムルールファイルを作成します:
 +
 [source,bash,role="execute"]
 ----
-cat > ~/ljj-custom-rules/ljj-migration-rules.yaml << 'EOF'
-- ruleID: ljj-logging-001
+cat > ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml << 'EOF'
+- ruleID: java-spring-boot-application-annotation
+  category: mandatory
+  effort: 2
   labels:
-    - konveyor.io/source=java-ee
+    - konveyor.io/source=springboot
     - konveyor.io/target=quarkus
-    - konveyor.io/source=ljj-framework
+  description: "@SpringBootApplication は Quarkus では不要です。"
   message: |-
-    `LJJLogger` は Legacy Java Japan 社内ロギングライブラリです。
-    Quarkus では JBoss Logging (`org.jboss.logging.Logger`) または SLF4J を使用してください。
+    `@SpringBootApplication` は Spring Boot 専用です。Quarkus では次のように整理します。
 
-    移行手順:
-    1. `import com.ljj.logging.LJJLogger;` を削除
-    2. `import org.jboss.logging.Logger;` を追加
-    3. `LJJLogger.getLogger(ClassName.class)` を `Logger.getLogger(ClassName.class)` に置き換え
+    1. 多くの場合は起動クラスごと削除し、CDI + `application.properties` だけで動かす
+    2. 明示的な `main` が必要なら `@QuarkusMain` と `Quarkus.run(...)` を使う
+    3. `SpringApplication.run(...)` は削除する
   tag:
-    - LJJ-Framework
-    - Logging
+    - SpringBoot
+    - Application
     - Migration-Required
   when:
     java.referenced:
-      pattern: com.ljj.logging.LJJLogger
-      location: IMPORT
-
-- ruleID: ljj-di-container-001
-  labels:
-    - konveyor.io/source=java-ee
-    - konveyor.io/target=quarkus
-    - konveyor.io/source=ljj-framework
-  message: |-
-    `com.ljj.di.Container` は Legacy Java Japan 独自の DI コンテナです。
-    Quarkus では CDI (Jakarta Contexts and Dependency Injection) を使用してください。
-
-    移行手順:
-    1. `Container.getInstance(ClassName.class)` を CDI の `@Inject` に置き換え
-    2. 対象クラスに `@ApplicationScoped` または `@RequestScoped` を付与
-    3. `ljj-di` の依存関係を `pom.xml` から削除
-  tag:
-    - LJJ-Framework
-    - DI-Container
-    - Migration-Required
-  when:
-    java.referenced:
-      pattern: com.ljj.di.Container
-      location: IMPORT
-
-- ruleID: ljj-di-inject-001
-  labels:
-    - konveyor.io/source=java-ee
-    - konveyor.io/target=quarkus
-    - konveyor.io/source=ljj-framework
-  message: |-
-    `@LJJInject` アノテーションは Legacy Java Japan 独自の DI アノテーションです。
-    Quarkus では標準の `@Inject` (jakarta.inject.Inject) を使用してください。
-
-    移行手順:
-    1. `import com.ljj.di.LJJInject;` を削除
-    2. `import jakarta.inject.Inject;` を追加
-    3. `@LJJInject` を `@Inject` に置き換え
-  tag:
-    - LJJ-Framework
-    - DI-Annotation
-    - Migration-Required
-  when:
-    java.referenced:
-      pattern: com.ljj.di.LJJInject
+      pattern: org.springframework.boot.autoconfigure.SpringBootApplication
       location: ANNOTATION
 
-- ruleID: ljj-config-001
+- ruleID: java-spring-mvc-controller-to-jaxrs
+  category: mandatory
+  effort: 5
   labels:
-    - konveyor.io/source=java-ee
+    - konveyor.io/source=springboot
     - konveyor.io/target=quarkus
-    - konveyor.io/source=ljj-framework
+  description: "@Controller (Spring MVC) を JAX-RS リソースクラスに変換してください。"
   message: |-
-    `AppConfig` は Legacy Java Japan 独自の設定管理クラスです。
-    Quarkus では MicroProfile Config (`@ConfigProperty`) を使用してください。
+    `@Controller` は Spring MVC 用です。Quarkus では JAX-RS リソースとして定義します。
 
-    移行手順:
-    1. `AppConfig.get("key")` パターンを `@ConfigProperty(name = "key")` に置き換え
-    2. `application.properties` に設定値を移行
-    3. `ljj-config` の依存関係を `pom.xml` から削除
+    1. クラスに `@Path("/...")` と `@ApplicationScoped` を付与
+    2. メソッドに `@GET` / `@POST` などを付与
+    3. Thymeleaf 連携は Qute (`TemplateInstance`) へ移行
+
+    影響例 (PetClinic): OwnerController, PetController, VisitController, VetController
   tag:
-    - LJJ-Framework
-    - Configuration
+    - SpringMVC
+    - JAX-RS
     - Migration-Required
   when:
     java.referenced:
-      pattern: com.ljj.config.AppConfig
+      pattern: org.springframework.stereotype.Controller
+      location: ANNOTATION
+
+- ruleID: java-spring-getmapping-to-jaxrs-get
+  category: mandatory
+  effort: 3
+  labels:
+    - konveyor.io/source=springboot
+    - konveyor.io/target=quarkus
+  description: Spring MVC の @GetMapping 等を JAX-RS の @GET @Path 等へ置き換える
+  message: |-
+    Spring MVC の HTTP マッピングを JAX-RS に置き換えます。
+
+    1. `@GetMapping("x")` → `@GET` + `@Path("x")`
+    2. `@PostMapping` → `@POST` + `@Path` (同様に Put / Delete)
+    3. 戻り値は論理ビュー名 (String) ではなく `TemplateInstance` または `Response`
+  tag:
+    - SpringMVC
+    - JAX-RS
+    - Migration-Required
+  when:
+    java.referenced:
+      pattern: org.springframework.web.bind.annotation.GetMapping
+      location: ANNOTATION
+
+- ruleID: java-spring-jpa-repository-to-panache
+  category: mandatory
+  effort: 4
+  labels:
+    - konveyor.io/source=springboot
+    - konveyor.io/target=quarkus
+  description: JpaRepository インターフェースを Quarkus Panache に変換してください。
+  message: |-
+    `JpaRepository<Entity, Id>` は Spring Data のインターフェースです。
+
+    1. `@ApplicationScoped` なクラスで `PanacheRepositoryBase<Entity, Id>` を実装する
+    2. ID 型はエンティティの `@Id` に合わせる (PetClinic は `Integer` が多い)
+    3. `repository.save(...)` は `persist(...)` / `persistAndFlush(...)` に置き換える
+
+    影響例: OwnerRepository, PetTypeRepository, VetRepository
+  tag:
+    - SpringData
+    - Panache
+    - Migration-Required
+  when:
+    java.referenced:
+      pattern: org.springframework.data.jpa.repository.JpaRepository
       location: IMPORT
 EOF
 ----
@@ -258,7 +267,7 @@ EOF
 +
 [source,bash,role="execute"]
 ----
-cat ~/ljj-custom-rules/ljj-migration-rules.yaml
+cat ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml
 ----
 
 . YAML の構文が正しいことを確認します:
@@ -267,7 +276,7 @@ cat ~/ljj-custom-rules/ljj-migration-rules.yaml
 ----
 python3 -c "
 import yaml, sys
-with open('/root/ljj-custom-rules/ljj-migration-rules.yaml') as f:
+with open('/root/petclinic-custom-rules/spring-to-quarkus-rules.yaml') as f:
     rules = yaml.safe_load(f)
 print(f'ルール数: {len(rules)}')
 for r in rules:
@@ -281,36 +290,34 @@ image::module03-custom-rules-yaml.png[カスタムルール YAML ファイル,li
 
 === カスタムルールの検証 (ドライラン)
 
-登録前に、ルールの内容が適切かどうかを確認するためのテスト用 Java ファイルを作成します。
+登録前に、ルールの検出対象パターンを含むテスト用 Java ファイルを作成します。
 
 . テスト用 Java ファイルを作成します:
 +
 [source,bash,role="execute"]
 ----
-mkdir -p ~/ljj-custom-rules/test-app/src/main/java/com/example
-cat > ~/ljj-custom-rules/test-app/src/main/java/com/example/SampleService.java << 'EOF'
-package com.example;
+mkdir -p ~/petclinic-custom-rules/test-app/src/main/java/org/springframework/samples/petclinic
+cat > ~/petclinic-custom-rules/test-app/src/main/java/org/springframework/samples/petclinic/SampleApp.java << 'EOF'
+package org.springframework.samples.petclinic;
 
-import com.ljj.logging.LJJLogger;
-import com.ljj.di.Container;
-import com.ljj.di.LJJInject;
-import com.ljj.config.AppConfig;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
 
-public class SampleService {
+@SpringBootApplication
+public class SampleApp {
+}
 
-    private static final LJJLogger logger = LJJLogger.getLogger(SampleService.class);
-
-    @LJJInject
-    private OrderRepository orderRepository;
-
-    public String getConfig() {
-        return AppConfig.get("app.name");
+@Controller
+class SampleController {
+    @GetMapping("/")
+    public String home() {
+        return "welcome";
     }
+}
 
-    public void process() {
-        Object repo = Container.getInstance(OrderRepository.class);
-        logger.info("Processing started");
-    }
+interface SampleRepository extends JpaRepository<Object, Integer> {
 }
 EOF
 ----
@@ -319,10 +326,10 @@ EOF
 +
 [source,bash,role="execute"]
 ----
-cat ~/ljj-custom-rules/test-app/src/main/java/com/example/SampleService.java
+cat ~/petclinic-custom-rules/test-app/src/main/java/org/springframework/samples/petclinic/SampleApp.java
 ----
 
-このファイルには 4 つのカスタムルールが検出対象とするパターンがすべて含まれています。エクササイズ 3 でこのファイルを含むアプリを分析し、ルールが機能することを確認します。
+このファイルには 4 つのカスタムルールが検出対象とするパターンが含まれています。エクササイズ 3 では、モジュール 2 で登録した PetClinic アプリに対してルールを適用し、検出を確認します。
 
 === 確認
 
@@ -331,21 +338,21 @@ cat ~/ljj-custom-rules/test-app/src/main/java/com/example/SampleService.java
 [source,bash,role="execute"]
 ----
 echo "=== カスタムルールファイルの確認 ==="
-ls -la ~/ljj-custom-rules/
+ls -la ~/petclinic-custom-rules/
 echo ""
 echo "=== ルール数の確認 ==="
-grep -c "ruleID:" ~/ljj-custom-rules/ljj-migration-rules.yaml
+grep -c "ruleID:" ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml
 echo "件のカスタムルールが定義されています"
 echo ""
 echo "=== 各ルール ID ==="
-grep "ruleID:" ~/ljj-custom-rules/ljj-migration-rules.yaml
+grep "ruleID:" ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml
 ----
 
 4 件のルール ID が表示されれば、カスタムルールファイルの作成は完了です。
 
 == エクササイズ 3: カスタムルールの適用と検証
 
-カスタムルールファイルができました。次は MTA に登録し、サンプルアプリの分析を再実行して、カスタムルールが正しく機能することを確認します。
+カスタムルールファイルができました。次は MTA に登録し、サンプルアプリ link:https://github.com/spring-projects/spring-petclinic[spring-petclinic^] の分析を再実行して、カスタムルールが正しく機能することを確認します。
 
 === カスタムルールセットの MTA への登録
 
@@ -359,8 +366,8 @@ curl -s -X POST \
   -u {user}:{password} \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "LJJ Framework Migration Rules",
-    "description": "Legacy Java Japan カンパニー社内フレームワーク移行ルール"
+    "name": "Spring PetClinic to Quarkus",
+    "description": "Spring Boot → Quarkus 移行ルール（PetClinic 向け）"
   }' \
   {mta_url}/hub/rulesets | python3 -m json.tool
 ----
@@ -376,7 +383,7 @@ RULESET_ID=$(curl -s -u {user}:{password} {mta_url}/hub/rulesets | \
 import json, sys
 data = json.load(sys.stdin)
 for rs in data:
-    if rs.get('name') == 'LJJ Framework Migration Rules':
+    if rs.get('name') == 'Spring PetClinic to Quarkus':
         print(rs['id'])
         break
 ")
@@ -389,7 +396,7 @@ echo "カスタムルールセット ID: $RULESET_ID"
 ----
 curl -s -X POST \
   -u {user}:{password} \
-  -F "file=@/root/ljj-custom-rules/ljj-migration-rules.yaml" \
+  -F "file=@/root/petclinic-custom-rules/spring-to-quarkus-rules.yaml" \
   {mta_url}/hub/rulesets/${RULESET_ID}/rules | python3 -m json.tool
 ----
 
@@ -414,9 +421,9 @@ image::module03-ruleset-registered.png[カスタムルールセット登録完�
 
 === カスタムルールを含む分析の再実行
 
-登録したカスタムルールを使って、サンプルアプリを再分析します。
+登録したカスタムルールを使って、サンプルアプリ link:https://github.com/spring-projects/spring-petclinic[spring-petclinic^] を再分析します。
 
-. モジュール 2 で使用したアプリケーションの ID を確認します:
+. モジュール 2 で使用したアプリケーション（`{app_1_gitrepo_url}`）の ID を確認します:
 +
 [source,bash,role="execute"]
 ----
@@ -447,7 +454,7 @@ RULESET_ID=$(curl -s -u {user}:{password} {mta_url}/hub/rulesets | \
 import json, sys
 data = json.load(sys.stdin)
 for rs in data:
-    if rs.get('name') == 'LJJ Framework Migration Rules':
+    if rs.get('name') == 'Spring PetClinic to Quarkus':
         print(rs['id'])
         break
 ")
@@ -465,7 +472,7 @@ curl -s -X POST \
     \"rules\": {
       \"rulesets\": [{\"id\": ${RULESET_ID}}],
       \"targets\": [\"quarkus\"],
-      \"sources\": [\"java-ee\", \"ljj-framework\"]
+      \"sources\": [\"springboot\"]
     },
     \"scope\": {
       \"packages\": {
@@ -544,10 +551,16 @@ curl -s -u {user}:{password} \
 import json, sys
 data = json.load(sys.stdin)
 if isinstance(data, list):
-    ljj_issues = [i for i in data if any('ljj' in str(t).lower() or 'LJJ' in str(t) for t in i.get('ruleset', {}).get('labels', []))]
-    print(f'カスタムルールによる検出数: {len(ljj_issues)}')
+    keys = (
+        'java-spring-boot-application-annotation',
+        'java-spring-mvc-controller-to-jaxrs',
+        'java-spring-getmapping-to-jaxrs-get',
+        'java-spring-jpa-repository-to-panache',
+    )
+    custom = [i for i in data if any(k in str(i.get('rule', '')) for k in keys)]
+    print(f'カスタムルールによる検出数: {len(custom)}')
     print(f'全検出数: {len(data)}')
-    for issue in ljj_issues[:5]:
+    for issue in custom[:8]:
         print(f'  - {issue.get(\"rule\", \"?\")}')
 else:
     print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -556,15 +569,15 @@ else:
 
 . VS Code の Konveyor サイドパネルでも確認します。コマンドパレット (`Ctrl+Shift+P`) を開き、`Konveyor: View Issues` を実行します。
 
-. Konveyor パネルに LJJ Framework 関連の issue が表示されていることを確認します:
+. Konveyor パネルに Spring → Quarkus 関連の issue が表示されていることを確認します:
 +
 [source,text]
 ----
 期待される検出結果:
-  [ljj-logging-001]  LJJLogger の使用箇所
-  [ljj-di-container-001]  com.ljj.di.Container の使用箇所
-  [ljj-di-inject-001]  @LJJInject アノテーションの使用箇所
-  [ljj-config-001]  AppConfig の使用箇所
+  [java-spring-boot-application-annotation]  @SpringBootApplication
+  [java-spring-mvc-controller-to-jaxrs]      @Controller
+  [java-spring-getmapping-to-jaxrs-get]      @GetMapping
+  [java-spring-jpa-repository-to-panache]    JpaRepository
 ----
 
 image::module03-custom-rules-results.png[カスタムルール検出結果,link=self,window=blank,width=700]
@@ -581,7 +594,7 @@ RULESET_ID=$(curl -s -u {user}:{password} {mta_url}/hub/rulesets | \
 import json, sys
 data = json.load(sys.stdin)
 for rs in data:
-    if rs.get('name') == 'LJJ Framework Migration Rules':
+    if rs.get('name') == 'Spring PetClinic to Quarkus':
         print(rs['id'])
         break
 ")
@@ -629,8 +642,8 @@ curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -m json.tool | hea
 +
 [source,bash,role="execute"]
 ----
-ls -la ~/ljj-custom-rules/ljj-migration-rules.yaml
-echo "ファイルサイズ: $(wc -c < ~/ljj-custom-rules/ljj-migration-rules.yaml) bytes"
+ls -la ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml
+echo "ファイルサイズ: $(wc -c < ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml) bytes"
 ----
 
 **問題**: 分析タスクが `Failed` になる
@@ -652,17 +665,17 @@ curl -s -u {user}:{password} {mta_url}/hub/tasks/${TASK_ID}/logs | tail -30
 
 **問題**: カスタムルールの検出結果がゼロになる
 
-→ **解決方法**: 分析対象のアプリに `com.ljj.*` パッケージが含まれているか確認します。テスト用の `SampleService.java` をプロジェクトに追加してから再実行してください。
+→ **解決方法**: 分析対象が PetClinic であること、およびソースに `@SpringBootApplication` / `@Controller` / `@GetMapping` / `JpaRepository` が含まれているかを確認します。
 
 == 学習成果チェックポイント
 
 このモジュールで学んだ内容を振り返りましょう。
 
-* **MTA ルールエンジンの理解**: `ruleID`、`labels`、`when`、`message`、`tag` の各フィールドの役割と、`java.referenced`、`xml`、`filecontent` といった検出条件のパターンを確認しました
-* **カスタムルールの作成**: Legacy Java Japan カンパニーの社内フレームワーク (`LJJLogger`、`Container`、`@LJJInject`、`AppConfig`) を検出する 4 つのカスタムルールを YAML で記述しました
+* **MTA ルールエンジンの理解**: `ruleID`、`labels`、`when`、`message`、`tag` の各フィールドの役割と、`java.referenced`、`builtin.xml`、`filecontent` といった検出条件のパターンを確認しました
+* **カスタムルールの作成**: PetClinic の Spring Boot → Quarkus 移行向けに、起動クラス・MVC・HTTP マッピング・JPA を検出する 4 つのカスタムルールを YAML で記述しました
 * **カスタムルールの適用と検証**: 作成したルールセットを MTA API で登録し、分析を再実行して検出結果に反映されることを確認しました
 
-標準ルールでカバーできない社内固有のパターンに対応できるようになりました。この仕組みを応用すれば、Legacy Java Japan カンパニーが持つ他の独自フレームワークにも同様のルールを作成できます。
+標準ルールに加え、チーム向けの具体的な移行手順をルールに載せられるようになりました。この仕組みを応用すれば、Thymeleaf → Qute やキャッシュ移行など、他の Spring → Quarkus パターンにも同様のルールを作成できます。
 
 == モジュールまとめ
 
@@ -671,13 +684,13 @@ curl -s -u {user}:{password} {mta_url}/hub/tasks/${TASK_ID}/logs | tail -30
 **達成したこと:**
 
 * MTA のルール構造を読み解き、`when` 条件の書き方を習得した
-* Legacy Java Japan カンパニー固有の 4 つのフレームワークを検出するカスタムルールを YAML で作成した
+* PetClinic 向けに Spring Boot → Quarkus の 4 つのカスタムルールを YAML で作成した
 * カスタムルールを MTA に登録し、分析に組み込んで結果を確認した
 
-**Legacy Java Japan カンパニーへの価値:**
+**移行プロジェクトへの価値:**
 
-* **網羅性の向上**: 標準ルールが見落とす社内フレームワークの移行箇所を自動検出できるようになった
-* **再利用性**: 一度作成したルールは全プロジェクトの分析に適用できる
+* **網羅性の向上**: 起動・Web・データ層の核心パターンをチーム標準のメッセージで検出できる
+* **再利用性**: 一度作成したルールは他の Spring Boot アプリの分析にも適用できる
 * **チームへの展開**: カスタムルール YAML はバージョン管理に保存し、組織全体で共有できる
 
 **次のステップ:**
