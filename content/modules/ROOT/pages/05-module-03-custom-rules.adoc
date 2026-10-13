@@ -5,11 +5,11 @@
 
 toc::[]
 
-モジュール 2 では MTA がサンプルアプリ link:https://github.com/spring-projects/spring-petclinic[spring-petclinic^] の問題箇所を自動検出し、Konveyor AI が移行コードを提案してくれることを確認しました。しかし、あなたは一つのことが気になっています。「Spring Boot から Quarkus への移行では、起動クラス・MVC・JPA が核心なのに、チーム向けの具体的な手順がルールに載っていない。これでは移行がブレる。」
+モジュール 2 では MTA と Konveyor AI による移行の流れを確認しました。しかし、あなたは一つのことが気になっています。「Spring Boot から Quarkus への移行では、起動クラス・MVC・JPA が核心なのに、チーム向けの具体的な手順がルールに載っていない。これでは移行がブレる。」
 
 上司に報告したところ、返ってきた言葉はシンプルでした。「だったらルールを自分で作ればいい。」
 
-MTA はカスタムルールをサポートしています。Spring Boot → Quarkus 向けの検出パターンを YAML で記述し、MTA に登録すれば、標準ルールと同じように分析に使えます。このモジュールでは、その仕組みを理解し、PetClinic 向けのカスタムルールを作成して登録します。
+MTA はカスタムルールをサポートしています。Spring Boot → Quarkus 向けの検出パターンを YAML で記述し、MTA に登録すれば、標準ルールと同じように分析に使えます。このモジュールでは、サンプルアプリ link:{app_2_gitrepo_url}[spring-petclinic^] を対象に、その仕組みを理解しカスタムルールを作成して登録します。
 
 == 学習目標
 
@@ -19,9 +19,99 @@ MTA はカスタムルールをサポートしています。Spring Boot → Qua
 * YAML 形式でカスタムルールを作成できる
 * 作成したカスタムルールを MTA に登録し、分析結果に反映できる
 
+== 環境の準備
+
+このモジュールでは link:{app_2_gitrepo_url}[spring-petclinic^] を分析対象にします。まず Dev Spaces でワークスペースを用意し、MTA API にアクセスできることを確認します。
+
+=== 前提条件
+
+* モジュール 1 で Dev Spaces の使い方と、Developer Lightspeed プラグインの MTA サーバー接続が完了していること
+* MTA API の認証情報（モジュール 1 と同じ `{usmta_admin_usernameer}` / `{mta_admin_password}`）が使えること
+
+=== 手順
+
+. ブラウザで Dev Spaces のコンソールを開きます。以下のリンクをクリックしてください。:
++
+https://devspaces.{cluster_domain}[DevSpaces を開く, window=_blank]
+
+. Dev Spaces のログイン画面が表示されたら、次の認証情報でログインします:
++
+[source,text,subs="attributes+"]
+----
+ユーザー名: {mta_admin_username}
+パスワード: {mta_admin_password}
+----
+
+. ログイン後、「Create Workspace」画面が開きます。すでに coolstore 用のワークスペースがある場合でも、このモジュールでは spring-petclinic 用のワークスペースを新規作成します。
+
+. ワークスペース作成画面で、Git リポジトリの URL を入力します。今回は link:{app_2_gitrepo_url}[spring-petclinic^] を使用します:
++
+[source,text,subs="attributes+"]
+----
+{app_2_gitrepo_url}
+----
+
+. 「Create & Open」ボタンをクリックしてワークスペースを起動します。ワークスペースの初期化には 1〜2 分かかります。
+
+.. 確認ダイアログが出た場合は、「Continue」をクリックしてください。
+
+.. 「Trust Publisher & Install」やディレクトリの信頼を求められた場合は、信頼するを選択してください。
+
+. ワークスペースが起動したら、Dev Spaces のターミナルでプロジェクトディレクトリを確認します:
++
+[source,bash,role="execute"]
+----
+echo "ワークスペース: $DEVWORKSPACE_NAME"
+pwd
+ls -la
+----
++
+`/projects/spring-petclinic` にいて、`pom.xml` と `src/` が表示されれば成功です。
++
+[source,bash,role="execute"]
+----
+cd /projects/spring-petclinic
+test -f pom.xml && test -d src && echo "spring-petclinic の準備 OK"
+----
+
+. MTA API に接続できることを確認します（以降のエクササイズで使う認証情報です）:
++
+[source,bash,role="execute"]
+----
+curl -s -o /dev/null -w "%{http_code}\n" -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets
+----
++
+`200` が返れば、MTA への接続は正常です。
+
+=== 確認
+
+環境が整っていることを最終確認します:
+
+[source,bash,role="execute"]
+----
+echo "=== プロジェクト ==="
+pwd
+ls pom.xml src 2>/dev/null && echo "プロジェクト構成: OK"
+
+echo ""
+echo "=== MTA API ==="
+curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(f'ルールセット取得: OK ({len(data)} 件)')
+"
+----
+
+プロジェクト構成と MTA API の両方が OK なら、環境準備は完了です。
+
 == エクササイズ 1: MTA ルールエンジンの仕組み理解
 
 カスタムルールを作る前に、MTA がどのようにルールを処理するかを理解します。Spring Boot → Quarkus の移行ルールを正確に記述するには、ルールの構造を把握しておくことが大切です。
+
+=== 前提条件
+
+* 「環境の準備」で Dev Spaces ワークスペース（spring-petclinic）が起動していること
+* MTA API に `{mta_admin_username}` / `{mta_admin_password}` でアクセスできること
 
 === MTA 組み込みルールセットの確認
 
@@ -31,7 +121,7 @@ MTA には各種移行に必要なルールがあらかじめ用意されてい�
 +
 [source,bash,role="execute"]
 ----
-curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -m json.tool | head -60
+curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | python3 -m json.tool | head -60
 ----
 +
 ルールセットの名前と ID が JSON 形式で返ってきます。
@@ -40,7 +130,7 @@ curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -m json.tool | hea
 +
 [source,bash,role="execute"]
 ----
-curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -c "
+curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 print(f'登録済みルールセット数: {len(data)}')
@@ -53,7 +143,7 @@ for rs in data[:5]:
 +
 [source,bash,role="execute"]
 ----
-curl -s -u {user}:{password} {mta_url}/hub/rulesets/1 | python3 -m json.tool
+curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets/1 | python3 -m json.tool
 ----
 
 image::module03-ruleset-list.png[MTA ルールセット一覧,link=self,window=blank,width=700]
@@ -151,6 +241,7 @@ PetClinic の Spring Boot → Quarkus 移行では、次の 4 点が特に重要
 
 === 前提条件
 
+* 「環境の準備」で spring-petclinic のワークスペースが起動していること
 * エクササイズ 1 で MTA ルールの構造を理解していること
 * Dev Spaces のターミナルが開いていること
 
@@ -352,7 +443,7 @@ grep "ruleID:" ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml
 
 == エクササイズ 3: カスタムルールの適用と検証
 
-カスタムルールファイルができました。次は MTA に登録し、サンプルアプリ link:https://github.com/spring-projects/spring-petclinic[spring-petclinic^] の分析を再実行して、カスタムルールが正しく機能することを確認します。
+カスタムルールファイルができました。次は MTA に登録し、サンプルアプリ link:{app_2_gitrepo_url}[spring-petclinic^] の分析を再実行して、カスタムルールが正しく機能することを確認します。
 
 === カスタムルールセットの MTA への登録
 
@@ -421,9 +512,9 @@ image::module03-ruleset-registered.png[カスタムルールセット登録完�
 
 === カスタムルールを含む分析の再実行
 
-登録したカスタムルールを使って、サンプルアプリ link:https://github.com/spring-projects/spring-petclinic[spring-petclinic^] を再分析します。
+登録したカスタムルールを使って、サンプルアプリ link:{app_2_gitrepo_url}[spring-petclinic^] を再分析します。
 
-. モジュール 2 で使用したアプリケーション（`{app_1_gitrepo_url}`）の ID を確認します:
+. このモジュールで使用するアプリケーション（`{app_2_gitrepo_url}`）の ID を確認します:
 +
 [source,bash,role="execute"]
 ----
