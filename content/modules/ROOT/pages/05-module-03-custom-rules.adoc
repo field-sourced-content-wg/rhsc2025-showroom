@@ -69,7 +69,7 @@ test -f pom.xml && test -d src && echo "spring-petclinic の準備 OK"
 
 . MTA API に接続できることを確認します（以降のエクササイズで使う認証情報です）:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -o /dev/null -w "%{http_code}\n" -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets
 ----
@@ -80,7 +80,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -u {mta_admin_username}:{mta_admin_pass
 
 環境が整っていることを最終確認します:
 
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 echo "=== プロジェクト ==="
 pwd
@@ -112,7 +112,7 @@ MTA には各種移行に必要なルールがあらかじめ用意されてい�
 
 . Dev Spaces のターミナルで、MTA API を使って利用可能なルールセットを一覧取得します:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | python3 -m json.tool | head -60
 ----
@@ -205,7 +205,7 @@ when:
 
 ルール構造を理解できたか確認します。次のコマンドを実行し、組み込みルールセットを一覧します:
 
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -c "
 import json, sys
@@ -445,7 +445,7 @@ MTA API を使ってカスタムルールセットを登録します。
 
 . まず、カスタムルールセットを MTA Hub API で作成します:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -X POST \
   -u {user}:{password} \
@@ -461,7 +461,7 @@ curl -s -X POST \
 
 . 作成したルールセットの ID を変数に格納します:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 RULESET_ID=$(curl -s -u {user}:{password} {mta_url}/hub/rulesets | \
   python3 -c "
@@ -477,7 +477,7 @@ echo "カスタムルールセット ID: $RULESET_ID"
 
 . YAML ルールファイルをルールセットにアップロードします:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -X POST \
   -u {user}:{password} \
@@ -487,7 +487,7 @@ curl -s -X POST \
 
 . カスタムルールが登録されたことを確認します:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -u {user}:{password} \
   {mta_url}/hub/rulesets/${RULESET_ID}/rules | python3 -c "
@@ -510,7 +510,7 @@ image::module03-ruleset-registered.png[カスタムルールセット登録完�
 
 . このモジュールで使用するアプリケーション（`{app_2_gitrepo_url}`）の ID を確認します:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -u {user}:{password} {mta_url}/hub/applications | python3 -c "
 import json, sys
@@ -523,7 +523,7 @@ for app in data:
 
 . アプリケーション ID を変数に格納します (リストに表示された最初のアプリを使用):
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 APP_ID=$(curl -s -u {user}:{password} {mta_url}/hub/applications | \
   python3 -c "import json, sys; data = json.load(sys.stdin); print(data[0]['id']) if data else print('')")
@@ -532,7 +532,7 @@ echo "分析対象アプリ ID: $APP_ID"
 
 . カスタムルールセットを含む新しい分析タスクを作成します:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 RULESET_ID=$(curl -s -u {user}:{password} {mta_url}/hub/rulesets | \
   python3 -c "
@@ -571,7 +571,7 @@ curl -s -X POST \
 
 . 分析タスクの ID を取得し、ステータスを監視します:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 TASK_ID=$(curl -s -u {user}:{password} {mta_url}/hub/tasks | \
   python3 -c "
@@ -598,7 +598,7 @@ print(f'タスク ID: {data.get(\"id\", \"?\")}')
 
 . 分析完了を待ちながらステータスを確認します:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 TASK_ID=$(curl -s -u {user}:{password} {mta_url}/hub/tasks | \
   python3 -c "
@@ -625,7 +625,7 @@ done
 
 . 分析レポートから、カスタムルールによる検出結果を取得します:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 APP_ID=$(curl -s -u {user}:{password} {mta_url}/hub/applications | \
   python3 -c "import json, sys; data = json.load(sys.stdin); print(data[0]['id']) if data else print('')")
@@ -671,7 +671,7 @@ image::module03-custom-rules-results.png[カスタムルール検出結果,link=
 
 カスタムルールが正しく機能していることを最終確認します:
 
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 echo "=== カスタムルールセットの登録確認 ==="
 RULESET_ID=$(curl -s -u {user}:{password} {mta_url}/hub/rulesets | \
@@ -716,7 +716,7 @@ if isinstance(data, list) and data:
 
 → **解決方法**: リクエスト JSON のフォーマットを確認します。`name` フィールドが必須です:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -m json.tool | head -20
 ----
@@ -735,7 +735,7 @@ echo "ファイルサイズ: $(wc -c < ~/petclinic-custom-rules/spring-to-quarku
 
 → **解決方法**: タスクのログを確認します:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 TASK_ID=$(curl -s -u {user}:{password} {mta_url}/hub/tasks | \
   python3 -c "
