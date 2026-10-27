@@ -9,7 +9,7 @@ toc::[]
 
 上司に報告したところ、返ってきた言葉はシンプルでした。「だったらルールを自分で作ればいい。」
 
-MTA はカスタムルールをサポートしています。Spring Boot → Quarkus 向けの検出パターンを YAML で記述し、MTA に登録すれば、標準ルールと同じように分析に使えます。このモジュールでは、サンプルアプリ link:{app_2_gitrepo_url}[spring-petclinic^] を対象に、その仕組みを理解しカスタムルールを作成して登録します。
+MTA はカスタムルールをサポートしています。Spring Boot → Quarkus 向けの検出パターンを YAML でローカルに記述し、Dev Spaces の MTA プラグイン（Analysis Profile の Set rules）に追加すれば、標準ルールと同じように分析に使えます。このモジュールでは、サンプルアプリ link:{app_2_gitrepo_url}[spring-petclinic^] を対象に、その仕組みを理解しカスタムルールを作成して解析に載せます。
 
 == 学習目標
 
@@ -17,7 +17,7 @@ MTA はカスタムルールをサポートしています。Spring Boot → Qua
 
 * MTA のルールエンジンの構造 (when / message / tag) を説明できる
 * YAML 形式でカスタムルールを作成できる
-* 作成したカスタムルールを MTA に登録し、分析結果に反映できる
+* 作成したカスタムルールを MTA プラグインのプロファイルに追加し、分析結果に反映できる
 
 == 環境の準備
 
@@ -151,7 +151,7 @@ MTA のカスタムルールは YAML 形式で記述します。基本的な構�
 - ruleID: java-spring-boot-application-annotation
   labels:
     - konveyor.io/source=springboot
-    - konveyor.io/target=quarkus
+    - konveyor.io/target=custom-springboot-rule
   message: |-
     `@SpringBootApplication` は Spring Boot 専用です。Quarkus では多くの場合起動クラスごと不要です。
     詳細: https://quarkus.io/guides/lifecycle
@@ -245,21 +245,21 @@ PetClinic の Spring Boot → Quarkus 移行では、次の 4 点が特に重要
 +
 [source,bash,role="execute"]
 ----
-mkdir -p ~/petclinic-custom-rules
-cd ~/petclinic-custom-rules
+mkdir -p /projects/spring-petclinic/custom-rules
+cd /projects/spring-petclinic/custom-rules
 ----
 
 . PetClinic 向け Spring Boot → Quarkus カスタムルールファイルを作成します:
 +
 [source,bash,role="execute"]
 ----
-cat > ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml << 'EOF'
+cat > /projects/spring-petclinic/custom-rules/spring-to-quarkus-rules.yaml << 'EOF'
 - ruleID: java-spring-boot-application-annotation
   category: mandatory
   effort: 2
   labels:
     - konveyor.io/source=springboot
-    - konveyor.io/target=quarkus
+    - konveyor.io/target=custom-springboot-rule
   description: "@SpringBootApplication は Quarkus では不要です。"
   message: |-
     `@SpringBootApplication` は Spring Boot 専用です。Quarkus では次のように整理します。
@@ -281,7 +281,7 @@ cat > ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml << 'EOF'
   effort: 5
   labels:
     - konveyor.io/source=springboot
-    - konveyor.io/target=quarkus
+    - konveyor.io/target=custom-springboot-rule
   description: "@Controller (Spring MVC) を JAX-RS リソースクラスに変換してください。"
   message: |-
     `@Controller` は Spring MVC 用です。Quarkus では JAX-RS リソースとして定義します。
@@ -305,7 +305,7 @@ cat > ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml << 'EOF'
   effort: 3
   labels:
     - konveyor.io/source=springboot
-    - konveyor.io/target=quarkus
+    - konveyor.io/target=custom-springboot-rule
   description: Spring MVC の @GetMapping 等を JAX-RS の @GET @Path 等へ置き換える
   message: |-
     Spring MVC の HTTP マッピングを JAX-RS に置き換えます。
@@ -327,7 +327,7 @@ cat > ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml << 'EOF'
   effort: 4
   labels:
     - konveyor.io/source=springboot
-    - konveyor.io/target=quarkus
+    - konveyor.io/target=custom-springboot-rule
   description: JpaRepository インターフェースを Quarkus Panache に変換してください。
   message: |-
     `JpaRepository<Entity, Id>` は Spring Data のインターフェースです。
@@ -352,7 +352,7 @@ EOF
 +
 [source,bash,role="execute"]
 ----
-cat ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml
+cat /projects/spring-petclinic/custom-rules/spring-to-quarkus-rules.yaml
 ----
 
 . コンテナイメージには PyYAML が入っていないため、先にインストールします:
@@ -380,7 +380,7 @@ if user_site not in sys.path:
 
 import yaml
 
-with open(Path.home() / "petclinic-custom-rules/spring-to-quarkus-rules.yaml") as f:
+with open(Path("/projects/spring-petclinic/custom-rules/spring-to-quarkus-rules.yaml")) as f:
     rules = yaml.safe_load(f)
 
 print("ルール数:", len(rules))
@@ -393,16 +393,50 @@ PY
 
 image::module03-custom-rules-yaml.png[カスタムルール YAML ファイル,link=self,window=blank,width=700]
 
-=== カスタムルールの検証 (ドライラン)
+=== 検出対象ソースの確認（分析ワークスペース内）
 
-登録前に、ルールの検出対象パターンを含むテスト用 Java ファイルを作成します。
+カスタムルールは **Dev Spaces で開いている spring-petclinic プロジェクト** に対して効きます。
+ホーム配下の一時ディレクトリではなく、次の場所が分析対象です。
 
-. テスト用 Java ファイルを作成します:
+[source,text]
+----
+分析対象ルート: /projects/spring-petclinic
+ルール YAML: /projects/spring-petclinic/custom-rules/spring-to-quarkus-rules.yaml
+  （プロジェクト内に置く。ホーム配下だとプラグインから選びにくい）
+----
+
+. 分析対象ディレクトリにいることを確認します:
 +
 [source,bash,role="execute"]
 ----
-mkdir -p ~/petclinic-custom-rules/test-app/src/main/java/org/springframework/samples/petclinic
-cat > ~/petclinic-custom-rules/test-app/src/main/java/org/springframework/samples/petclinic/SampleApp.java << 'EOF'
+cd /projects/spring-petclinic
+pwd
+ls pom.xml src
+----
+
+. PetClinic 本体に、今回の 4 ルールがヒットするパターンがあることを確認します:
++
+[source,bash,role="execute"]
+----
+cd /projects/spring-petclinic
+echo "=== @SpringBootApplication ==="
+grep -R --include='*.java' -n 'SpringBootApplication' src | head
+echo "=== @Controller ==="
+grep -R --include='*.java' -n '@Controller' src | head
+echo "=== @GetMapping ==="
+grep -R --include='*.java' -n '@GetMapping' src | head
+echo "=== JpaRepository ==="
+grep -R --include='*.java' -n 'JpaRepository' src | head
+----
++
+いずれも 1 件以上ヒットすれば、追加のダミーソースなしでルール検証できます。
+
+. （任意）デモ用に、パターンをまとめたプローブファイルを **プロジェクト内** に置きます。
+  分析対象外の `~/.../test-app` には置かないでください:
++
+[source,bash,role="execute"]
+----
+cat > /projects/spring-petclinic/src/main/java/org/springframework/samples/petclinic/CustomRuleProbe.java << 'EOF'
 package org.springframework.samples.petclinic;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -410,271 +444,145 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 
+/**
+ * Module 3 用: カスタムルール検出の確認用プローブ。
+ * 本番コードではないため、検証後に削除して構いません。
+ */
 @SpringBootApplication
-public class SampleApp {
+public class CustomRuleProbe {
 }
 
 @Controller
-class SampleController {
-    @GetMapping("/")
-    public String home() {
-        return "welcome";
+class CustomRuleProbeController {
+    @GetMapping("/custom-rule-probe")
+    public String probe() {
+        return "probe";
     }
 }
 
-interface SampleRepository extends JpaRepository<Object, Integer> {
+interface CustomRuleProbeRepository extends JpaRepository<Object, Integer> {
 }
 EOF
+ls -la /projects/spring-petclinic/src/main/java/org/springframework/samples/petclinic/CustomRuleProbe.java
 ----
-
-. 作成したテストファイルを確認します:
-+
-[source,bash,role="execute"]
-----
-cat ~/petclinic-custom-rules/test-app/src/main/java/org/springframework/samples/petclinic/SampleApp.java
-----
-
-このファイルには 4 つのカスタムルールが検出対象とするパターンが含まれています。エクササイズ 3 では、モジュール 2 で登録した PetClinic アプリに対してルールを適用し、検出を確認します。
 
 === 確認
 
-作成したルールファイルの構造を確認します:
+作成したルール YAML と、分析対象ソースの両方を確認します:
 
 [source,bash,role="execute"]
 ----
-echo "=== カスタムルールファイルの確認 ==="
-ls -la ~/petclinic-custom-rules/
+echo "=== ルール YAML ==="
+ls -la /projects/spring-petclinic/custom-rules/spring-to-quarkus-rules.yaml
+grep "ruleID:" /projects/spring-petclinic/custom-rules/spring-to-quarkus-rules.yaml
+
 echo ""
-echo "=== ルール数の確認 ==="
-grep -c "ruleID:" ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml
-echo "件のカスタムルールが定義されています"
-echo ""
-echo "=== 各ルール ID ==="
-grep "ruleID:" ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml
+echo "=== 分析対象 ==="
+cd /projects/spring-petclinic
+test -f pom.xml && test -d src && echo "spring-petclinic: OK"
+test -f src/main/java/org/springframework/samples/petclinic/CustomRuleProbe.java \
+  && echo "CustomRuleProbe.java: OK (任意)" \
+  || echo "CustomRuleProbe.java: 未作成（本体ソースのみで検証する場合は不要）"
 ----
 
-4 件のルール ID が表示されれば、カスタムルールファイルの作成は完了です。
+ルール YAML が 4 件、分析対象が `/projects/spring-petclinic` なら準備完了です。
 
-== エクササイズ 3: カスタムルールの適用と検証
+== エクササイズ 3: ローカルルールをプラグインに追加して解析する
 
-カスタムルールファイルができました。次は MTA に登録し、サンプルアプリ link:{app_2_gitrepo_url}[spring-petclinic^] の分析を再実行して、カスタムルールが正しく機能することを確認します。
+このエクササイズでは **Hub へのアップロードは使いません**。
+プロジェクト内に作った YAML を、Dev Spaces の MTA プラグイン（Analysis Profile）へ追加して解析します。
 
-=== カスタムルールセットの MTA への登録
+[IMPORTANT]
+====
+ルールファイルは **ワークスペース内**（`/projects/spring-petclinic/custom-rules/`）に置きます。
+ホーム配下（`~/...`）だと Explorer / Set rules のファイル選択から外れやすく、
+OUTPUT ログにも `--rules` が載らない原因になります。
+====
 
-MTA API を使ってカスタムルールセットを登録します。
+=== プロファイルへカスタムルールを追加する
 
-. まず、カスタムルールセットを MTA Hub API で作成します:
+. Dev Spaces で `/projects/spring-petclinic` が開いていることを確認します:
 +
-[source,bash,role="execute",subs="attributes+"]
+[source,bash,role="execute"]
 ----
-curl -s -X POST \
-  -u {mta_admin_username}:{mta_admin_password} \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Spring PetClinic to Quarkus",
-    "description": "Spring Boot → Quarkus 移行ルール（PetClinic 向け）"
-  }' \
-  {mta_ui_internal_url}/hub/rulesets | python3 -m json.tool
+cd /projects/spring-petclinic
+pwd
+ls custom-rules/spring-to-quarkus-rules.yaml pom.xml
 ----
+
+. コマンドパレット (`Ctrl+Shift+P`) で `MTA: Open Analysis View` を実行します。
+
+. Analysis View の設定（歯車 / Get Ready to Analyze）を開き、次でプロファイルを作成または更新します:
 +
-レスポンスに `"id"` フィールドが含まれていれば、ルールセットが作成されています。ID をメモしておきます。
-
-. 作成したルールセットの ID を変数に格納します:
-+
-[source,bash,role="execute",subs="attributes+"]
+[source,text]
 ----
-RULESET_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | \
-  python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for rs in data:
-    if rs.get('name') == 'Spring PetClinic to Quarkus':
-        print(rs['id'])
-        break
-")
-echo "カスタムルールセット ID: $RULESET_ID"
-----
-
-. YAML ルールファイルをルールセットにアップロードします:
-+
-[source,bash,role="execute",subs="attributes+"]
-----
-curl -s -X POST \
-  -u {mta_admin_username}:{mta_admin_password} \
-  -F "file=@${HOME}/petclinic-custom-rules/spring-to-quarkus-rules.yaml" \
-  {mta_ui_internal_url}/hub/rulesets/${RULESET_ID}/rules | python3 -m json.tool
-----
-
-. カスタムルールが登録されたことを確認します:
-+
-[source,bash,role="execute",subs="attributes+"]
-----
-curl -s -u {mta_admin_username}:{mta_admin_password} \
-  {mta_ui_internal_url}/hub/rulesets/${RULESET_ID}/rules | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-if isinstance(data, list):
-    print(f'登録済みルール数: {len(data)}')
-    for rule in data:
-        print(f'  - {rule.get(\"ruleID\", \"?\")}')
-else:
-    print(json.dumps(data, ensure_ascii=False, indent=2))
-"
-----
-
-image::module03-ruleset-registered.png[カスタムルールセット登録完了,link=self,window=blank,width=700]
-
-=== カスタムルールを含む分析の再実行
-
-登録したカスタムルールを使って、サンプルアプリ link:{app_2_gitrepo_url}[spring-petclinic^] を再分析します。
-
-. このモジュールで使用するアプリケーション（`{app_2_gitrepo_url}`）の ID を確認します:
-+
-[source,bash,role="execute",subs="attributes+"]
-----
-curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/applications | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(f'登録済みアプリ数: {len(data)}')
-for app in data:
-    print(f'  ID={app[\"id\"]}: {app[\"name\"]}')
-"
-----
-
-. アプリケーション ID を変数に格納します (リストに表示された最初のアプリを使用):
-+
-[source,bash,role="execute",subs="attributes+"]
-----
-APP_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/applications | \
-  python3 -c "import json, sys; data = json.load(sys.stdin); print(data[0]['id']) if data else print('')")
-echo "分析対象アプリ ID: $APP_ID"
-----
-
-. カスタムルールセットを含む新しい分析タスクを作成します:
-+
-[source,bash,role="execute",subs="attributes+"]
-----
-RULESET_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | \
-  python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for rs in data:
-    if rs.get('name') == 'Spring PetClinic to Quarkus':
-        print(rs['id'])
-        break
-")
-
-curl -s -X POST \
-  -u {mta_admin_username}:{mta_admin_password} \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"application\": {\"id\": ${APP_ID}},
-    \"mode\": {
-      \"binary\": false,
-      \"withDeps\": false,
-      \"artifact\": \"\"
-    },
-    \"rules\": {
-      \"rulesets\": [{\"id\": ${RULESET_ID}}],
-      \"targets\": [\"quarkus\"],
-      \"sources\": [\"springboot\"]
-    },
-    \"scope\": {
-      \"packages\": {
-        \"included\": [],
-        \"excluded\": []
-      }
-    }
-  }" \
-  {mta_ui_internal_url}/hub/tasks | python3 -m json.tool
-----
-
-. 分析タスクの ID を取得し、ステータスを監視します:
-+
-[source,bash,role="execute",subs="attributes+"]
-----
-TASK_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks | \
-  python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-if isinstance(data, list) and data:
-    # 最新のタスクを取得
-    latest = sorted(data, key=lambda x: x.get('id', 0), reverse=True)[0]
-    print(latest['id'])
-")
-echo "分析タスク ID: $TASK_ID"
-
-# ステータスを確認 (Succeeded になるまで待機)
-curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks/${TASK_ID} | \
-  python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(f'タスク状態: {data.get(\"state\", \"不明\")}')
-print(f'タスク ID: {data.get(\"id\", \"?\")}')
-"
+Profile Name: petclinic-custom-springboot-rule
+Configure label selector (Target):
+  - custom-springboot-rule    ← 候補に無ければ手入力で追加
+Source:
+  - （未指定で可）
+Set rules:
+  - Use Default Rules: オフ（カスタムだけ確認するなら推奨）
+  - Custom rules: custom-rules/spring-to-quarkus-rules.yaml を選択（またはアップロード）
 ----
 +
-分析には 1〜3 分かかります。`state` が `Succeeded` になるまで待ちます。
+[NOTE]
+====
+Target に組み込みの `quarkus` ではなく `custom-springboot-rule` を使うのは、
+標準ルールとラベルが被ると Issues / ログ上で区別しづらいためです。
+YAML 側の `konveyor.io/target=` と **同じ文字列** である必要があります。
+====
 
-. 分析完了を待ちながらステータスを確認します:
+. 設定を閉じ、プロファイル `petclinic-custom-springboot-rule` が選択されていることを確認します。
+
+. Analysis View の `Start` でサーバーを起動し、Running になることを確認します。
+
+. `MTA: Run Analysis`（または Analysis View の Run Analysis）を実行します。完了まで 1〜3 分ほどかかります。
+
+=== OUTPUT ログで「ルールが呼ばれたか」を確認する
+
+Issues の前に、**OUTPUT（MTA / analyzer）** でカスタムルールが解析パイプラインに乗ったかを見ます。
+
+. *View* → *Output* を開き、ドロップダウンで MTA / Konveyor / analyzer 関連チャネルを選びます。
+
+. ログ内を次で検索します（`Ctrl+F`）:
 +
-[source,bash,role="execute",subs="attributes+"]
+[source,text]
 ----
-TASK_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks | \
-  python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-if isinstance(data, list) and data:
-    latest = sorted(data, key=lambda x: x.get('id', 0), reverse=True)[0]
-    print(latest['id'])
-")
-
-for i in {1..6}; do
-  STATE=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks/${TASK_ID} | \
-    python3 -c "import json, sys; d = json.load(sys.stdin); print(d.get('state','?'))")
-  echo "[試行 ${i}/6] タスク状態: ${STATE}"
-  if [ "${STATE}" = "Succeeded" ]; then
-    echo "分析が完了しました"
-    break
-  fi
-  sleep 30
-done
+custom-rules
+spring-to-quarkus-rules.yaml
+custom-springboot-rule
+java-spring-boot-application-annotation
+--rules
+--label-selector
 ----
 
-=== カスタムルールの検出結果を確認する
-
-. 分析レポートから、カスタムルールによる検出結果を取得します:
+. 成功時の目安:
 +
-[source,bash,role="execute",subs="attributes+"]
+[source,text]
 ----
-APP_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/applications | \
-  python3 -c "import json, sys; data = json.load(sys.stdin); print(data[0]['id']) if data else print('')")
+OK のサイン（環境により表記は多少異なる）:
+  - 起動コマンドや設定に spring-to-quarkus-rules.yaml / custom-rules が含まれる
+  - label-selector / target に custom-springboot-rule が含まれる
+  - 上記 ruleID がロード／評価対象として出てくる
 
-curl -s -u {mta_admin_username}:{mta_admin_password} \
-  "{mta_ui_internal_url}/hub/applications/${APP_ID}/analysis/issues" | \
-  python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-if isinstance(data, list):
-    keys = (
-        'java-spring-boot-application-annotation',
-        'java-spring-mvc-controller-to-jaxrs',
-        'java-spring-getmapping-to-jaxrs-get',
-        'java-spring-jpa-repository-to-panache',
-    )
-    custom = [i for i in data if any(k in str(i.get('rule', '')) for k in keys)]
-    print(f'カスタムルールによる検出数: {len(custom)}')
-    print(f'全検出数: {len(data)}')
-    for issue in custom[:8]:
-        print(f'  - {issue.get(\"rule\", \"?\")}')
-else:
-    print(json.dumps(data, ensure_ascii=False, indent=2))
-"
+NG のサイン:
+  - --rules や custom-rules パスが一切出ない → Set rules にファイルが載っていない
+  - label-selector が quarkus のみ → カスタムラベルと不一致でフィルタ落ち
+  - Use Default Rules のみで Custom rules 未選択
 ----
 
-. VS Code の Konveyor サイドパネルでも確認します。コマンドパレット (`Ctrl+Shift+P`) を開き、`Konveyor: View Issues` を実行します。
+[TIP]
+====
+再実行してもログにパスが無い場合は、プロファイルを保存し直してから
+Analysis View のサーバーを一度 Stop → Start し、再度 Run Analysis してください。
+====
 
-. Konveyor パネルに Spring → Quarkus 関連の issue が表示されていることを確認します:
+=== カスタムルールの検出結果を確認する（Issues）
+
+. Analysis View / Developer Lightspeed のサイドパネルで Issues を開きます。
+
+. 次の ruleID（または同等のメッセージ）が含まれることを確認します:
 +
 [source,text]
 ----
@@ -684,103 +592,55 @@ else:
   [java-spring-getmapping-to-jaxrs-get]      @GetMapping
   [java-spring-jpa-repository-to-panache]    JpaRepository
 ----
++
+任意で追加した `CustomRuleProbe.java` がある場合は、そのファイルへのヒットも確認できます。
+  無くても PetClinic 本体（例: `*Application.java`, `*Controller.java`, `*Repository.java`）で検出されます。
+
+. コマンドパレットで `Konveyor: View Issues` を実行し、同様の一覧が見えることも確認できます。
 
 image::module03-custom-rules-results.png[カスタムルール検出結果,link=self,window=blank,width=700]
 
 === 確認
 
-カスタムルールが正しく機能していることを最終確認します:
+次がすべて満たされていれば、このモジュールの目標を達成しています:
 
-[source,bash,role="execute",subs="attributes+"]
-----
-echo "=== カスタムルールセットの登録確認 ==="
-RULESET_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | \
-  python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for rs in data:
-    if rs.get('name') == 'Spring PetClinic to Quarkus':
-        print(rs['id'])
-        break
-")
-echo "カスタムルールセット ID: ${RULESET_ID}"
-
-echo ""
-echo "=== 登録済みルール確認 ==="
-curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets/${RULESET_ID} | \
-  python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(f'ルールセット名: {data.get(\"name\", \"?\")}')
-print(f'説明: {data.get(\"description\", \"?\")}')
-"
-
-echo ""
-echo "=== 最新タスクの状態確認 ==="
-curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks | \
-  python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-if isinstance(data, list) and data:
-    latest = sorted(data, key=lambda x: x.get('id', 0), reverse=True)[0]
-    print(f'最新タスク ID: {latest[\"id\"]}')
-    print(f'状態: {latest.get(\"state\", \"?\")}')
-"
-----
-
-カスタムルールセットが登録され、分析タスクが `Succeeded` になっていれば、このモジュールのすべての目標を達成しています。
+* ルール YAML が `/projects/spring-petclinic/custom-rules/` にある
+* Analysis Profile の Set rules にその YAML が選ばれている
+* Label Selector の Target が `custom-springboot-rule` である
+* OUTPUT にカスタムルールパス / ラベルの痕跡がある
+* Issues に上記 4 系統の ruleID（または同等メッセージ）が見える
 
 === よくある問題
 
-**問題**: ルールセット作成時に `400 Bad Request` が返る
+**問題**: 再実行しても OUTPUT にカスタムルールが現れない / 呼ばれていないように見える
 
-→ **解決方法**: リクエスト JSON のフォーマットを確認します。`name` フィールドが必須です:
-+
-[source,bash,role="execute",subs="attributes+"]
-----
-curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | python3 -m json.tool | head -20
-----
+→ **解決方法**:
+. Explorer で `custom-rules/spring-to-quarkus-rules.yaml` が見えるか確認する（ワークスペース外だと不可）
+. Get Ready to Analyze → **Set rules** で YAML が選択済みか確認する（Hub Target 登録では Plugin に同期されない）
+. Label Selector が **`custom-springboot-rule`** か確認する（`quarkus` のままだとフィルタで落ちる）
+. カスタムだけ見るなら **Use Default Rules をオフ** にする
+. プロファイル保存後、RPC サーバーを Stop → Start してから再解析する
 
-**問題**: YAML ファイルのアップロードが失敗する
+**問題**: カスタムルールの検出結果がゼロになる（ログにはパスがある）
 
-→ **解決方法**: ファイルパスとルールセット ID を確認します:
-+
-[source,bash,role="execute"]
-----
-ls -la ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml
-echo "ファイルサイズ: $(wc -c < ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml) bytes"
-----
+→ **解決方法**:
+. 分析対象が `/projects/spring-petclinic` か確認する
+. YAML の `konveyor.io/target=` と Profile の Target 文字列が一致しているか確認する
+. PetClinic 本体に `@SpringBootApplication` / `@Controller` 等があるか、エクササイズ 2 の grep で確認する
 
-**問題**: 分析タスクが `Failed` になる
+**問題**: Analysis View が Running にならない
 
-→ **解決方法**: タスクのログを確認します:
-+
-[source,bash,role="execute",subs="attributes+"]
-----
-TASK_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks | \
-  python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-if isinstance(data, list) and data:
-    latest = sorted(data, key=lambda x: x.get('id', 0), reverse=True)[0]
-    print(latest['id'])
-")
-curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks/${TASK_ID}/logs | tail -30
-----
-
-**問題**: カスタムルールの検出結果がゼロになる
-
-→ **解決方法**: 分析対象が PetClinic であること、およびソースに `@SpringBootApplication` / `@Controller` / `@GetMapping` / `JpaRepository` が含まれているかを確認します。
+→ **解決方法**: Module 1 / 2 と同様に `Start` を押し直し、Hub Configuration と GenAI 設定を確認します。
 
 == 学習成果チェックポイント
 
 このモジュールで学んだ内容を振り返りましょう。
 
-* **MTA ルールエンジンの理解**: `ruleID`、`labels`、`when`、`message`、`tag` の各フィールドの役割と、`java.referenced`、`builtin.xml`、`filecontent` といった検出条件のパターンを確認しました
-* **カスタムルールの作成**: PetClinic の Spring Boot → Quarkus 移行向けに、起動クラス・MVC・HTTP マッピング・JPA を検出する 4 つのカスタムルールを YAML で記述しました
-* **カスタムルールの適用と検証**: 作成したルールセットを MTA API で登録し、分析を再実行して検出結果に反映されることを確認しました
+* **MTA ルールエンジンの理解**: `ruleID`、`labels`、`when`、`message`、`tag` の各フィールドの役割と、検出条件のパターンを確認しました
+* **カスタムルールの作成**: PetClinic 向けに 4 つのカスタムルールを YAML で記述しました
+* **プラグインでの適用と検証**: Analysis Profile の Set rules にローカル YAML を追加し、OUTPUT / Issues で検出を確認しました
 
-標準ルールに加え、チーム向けの具体的な移行手順をルールに載せられるようになりました。この仕組みを応用すれば、Thymeleaf → Qute やキャッシュ移行など、他の Spring → Quarkus パターンにも同様のルールを作成できます。
+標準ルールに加え、チーム向けの具体的な移行手順をルールに載せられるようになりました。
 
 == モジュールまとめ
 
@@ -790,7 +650,7 @@ curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/t
 
 * MTA のルール構造を読み解き、`when` 条件の書き方を習得した
 * PetClinic 向けに Spring Boot → Quarkus の 4 つのカスタムルールを YAML で作成した
-* カスタムルールを MTA に登録し、分析に組み込んで結果を確認した
+* MTA プラグインのプロファイルに追加し、解析結果で確認した
 
 **移行プロジェクトへの価値:**
 
