@@ -205,6 +205,7 @@ when:
 
 ルール構造を理解できたか確認します。次のコマンドを実行し、組み込みルールセットを一覧します:
 
++
 [source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -c "
