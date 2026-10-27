@@ -26,7 +26,7 @@ MTA はカスタムルールをサポートしています。Spring Boot → Qua
 === 前提条件
 
 * モジュール 1 で Dev Spaces の使い方と、Developer Lightspeed プラグインの MTA サーバー接続が完了していること
-* MTA API の認証情報（モジュール 1 と同じ `{usmta_admin_usernameer}` / `{mta_admin_password}`）が使えること
+* MTA API の認証情報（モジュール 1 と同じ `{mta_admin_username}` / `{mta_admin_password}`）が使えること
 
 === 手順
 
@@ -355,18 +355,38 @@ EOF
 cat ~/petclinic-custom-rules/spring-to-quarkus-rules.yaml
 ----
 
+. コンテナイメージには PyYAML が入っていないため、先にインストールします:
++
+[source,bash,role="execute"]
+----
+python3 -m pip install --user pyyaml
+----
++
+`Successfully installed` または `Requirement already satisfied` と表示されれば完了です。
+
 . YAML の構文が正しいことを確認します:
 +
 [source,bash,role="execute"]
 ----
-python3 -c "
-import yaml, sys
-with open('/root/petclinic-custom-rules/spring-to-quarkus-rules.yaml') as f:
+python3 << 'PY'
+import sys
+import site
+from pathlib import Path
+
+# Dev Spaces では user site が sys.path に入らないことがある
+user_site = site.getusersitepackages()
+if user_site not in sys.path:
+    sys.path.insert(0, user_site)
+
+import yaml
+
+with open(Path.home() / "petclinic-custom-rules/spring-to-quarkus-rules.yaml") as f:
     rules = yaml.safe_load(f)
-print(f'ルール数: {len(rules)}')
+
+print("ルール数:", len(rules))
 for r in rules:
-    print(f'  - {r[\"ruleID\"]}: タグ {r.get(\"tag\", [])}')
-"
+    print("  - {}: タグ {}".format(r["ruleID"], r.get("tag", [])))
+PY
 ----
 +
 4 件のルールが表示されれば、YAML 構文は正しいです。
@@ -448,13 +468,13 @@ MTA API を使ってカスタムルールセットを登録します。
 [source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -X POST \
-  -u {user}:{password} \
+  -u {mta_admin_username}:{mta_admin_password} \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Spring PetClinic to Quarkus",
     "description": "Spring Boot → Quarkus 移行ルール（PetClinic 向け）"
   }' \
-  {mta_url}/hub/rulesets | python3 -m json.tool
+  {mta_ui_internal_url}/hub/rulesets | python3 -m json.tool
 ----
 +
 レスポンスに `"id"` フィールドが含まれていれば、ルールセットが作成されています。ID をメモしておきます。
@@ -463,7 +483,7 @@ curl -s -X POST \
 +
 [source,bash,role="execute",subs="attributes+"]
 ----
-RULESET_ID=$(curl -s -u {user}:{password} {mta_url}/hub/rulesets | \
+RULESET_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | \
   python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -480,17 +500,17 @@ echo "カスタムルールセット ID: $RULESET_ID"
 [source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -X POST \
-  -u {user}:{password} \
-  -F "file=@/root/petclinic-custom-rules/spring-to-quarkus-rules.yaml" \
-  {mta_url}/hub/rulesets/${RULESET_ID}/rules | python3 -m json.tool
+  -u {mta_admin_username}:{mta_admin_password} \
+  -F "file=@${HOME}/petclinic-custom-rules/spring-to-quarkus-rules.yaml" \
+  {mta_ui_internal_url}/hub/rulesets/${RULESET_ID}/rules | python3 -m json.tool
 ----
 
 . カスタムルールが登録されたことを確認します:
 +
 [source,bash,role="execute",subs="attributes+"]
 ----
-curl -s -u {user}:{password} \
-  {mta_url}/hub/rulesets/${RULESET_ID}/rules | python3 -c "
+curl -s -u {mta_admin_username}:{mta_admin_password} \
+  {mta_ui_internal_url}/hub/rulesets/${RULESET_ID}/rules | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 if isinstance(data, list):
@@ -512,7 +532,7 @@ image::module03-ruleset-registered.png[カスタムルールセット登録完�
 +
 [source,bash,role="execute",subs="attributes+"]
 ----
-curl -s -u {user}:{password} {mta_url}/hub/applications | python3 -c "
+curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/applications | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 print(f'登録済みアプリ数: {len(data)}')
@@ -525,7 +545,7 @@ for app in data:
 +
 [source,bash,role="execute",subs="attributes+"]
 ----
-APP_ID=$(curl -s -u {user}:{password} {mta_url}/hub/applications | \
+APP_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/applications | \
   python3 -c "import json, sys; data = json.load(sys.stdin); print(data[0]['id']) if data else print('')")
 echo "分析対象アプリ ID: $APP_ID"
 ----
@@ -534,7 +554,7 @@ echo "分析対象アプリ ID: $APP_ID"
 +
 [source,bash,role="execute",subs="attributes+"]
 ----
-RULESET_ID=$(curl -s -u {user}:{password} {mta_url}/hub/rulesets | \
+RULESET_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | \
   python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -545,7 +565,7 @@ for rs in data:
 ")
 
 curl -s -X POST \
-  -u {user}:{password} \
+  -u {mta_admin_username}:{mta_admin_password} \
   -H "Content-Type: application/json" \
   -d "{
     \"application\": {\"id\": ${APP_ID}},
@@ -566,14 +586,14 @@ curl -s -X POST \
       }
     }
   }" \
-  {mta_url}/hub/tasks | python3 -m json.tool
+  {mta_ui_internal_url}/hub/tasks | python3 -m json.tool
 ----
 
 . 分析タスクの ID を取得し、ステータスを監視します:
 +
 [source,bash,role="execute",subs="attributes+"]
 ----
-TASK_ID=$(curl -s -u {user}:{password} {mta_url}/hub/tasks | \
+TASK_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks | \
   python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -585,7 +605,7 @@ if isinstance(data, list) and data:
 echo "分析タスク ID: $TASK_ID"
 
 # ステータスを確認 (Succeeded になるまで待機)
-curl -s -u {user}:{password} {mta_url}/hub/tasks/${TASK_ID} | \
+curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks/${TASK_ID} | \
   python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -600,7 +620,7 @@ print(f'タスク ID: {data.get(\"id\", \"?\")}')
 +
 [source,bash,role="execute",subs="attributes+"]
 ----
-TASK_ID=$(curl -s -u {user}:{password} {mta_url}/hub/tasks | \
+TASK_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks | \
   python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -610,7 +630,7 @@ if isinstance(data, list) and data:
 ")
 
 for i in {1..6}; do
-  STATE=$(curl -s -u {user}:{password} {mta_url}/hub/tasks/${TASK_ID} | \
+  STATE=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks/${TASK_ID} | \
     python3 -c "import json, sys; d = json.load(sys.stdin); print(d.get('state','?'))")
   echo "[試行 ${i}/6] タスク状態: ${STATE}"
   if [ "${STATE}" = "Succeeded" ]; then
@@ -627,11 +647,11 @@ done
 +
 [source,bash,role="execute",subs="attributes+"]
 ----
-APP_ID=$(curl -s -u {user}:{password} {mta_url}/hub/applications | \
+APP_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/applications | \
   python3 -c "import json, sys; data = json.load(sys.stdin); print(data[0]['id']) if data else print('')")
 
-curl -s -u {user}:{password} \
-  "{mta_url}/hub/applications/${APP_ID}/analysis/issues" | \
+curl -s -u {mta_admin_username}:{mta_admin_password} \
+  "{mta_ui_internal_url}/hub/applications/${APP_ID}/analysis/issues" | \
   python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -674,7 +694,7 @@ image::module03-custom-rules-results.png[カスタムルール検出結果,link=
 [source,bash,role="execute",subs="attributes+"]
 ----
 echo "=== カスタムルールセットの登録確認 ==="
-RULESET_ID=$(curl -s -u {user}:{password} {mta_url}/hub/rulesets | \
+RULESET_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | \
   python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -687,7 +707,7 @@ echo "カスタムルールセット ID: ${RULESET_ID}"
 
 echo ""
 echo "=== 登録済みルール確認 ==="
-curl -s -u {user}:{password} {mta_url}/hub/rulesets/${RULESET_ID} | \
+curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets/${RULESET_ID} | \
   python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -697,7 +717,7 @@ print(f'説明: {data.get(\"description\", \"?\")}')
 
 echo ""
 echo "=== 最新タスクの状態確認 ==="
-curl -s -u {user}:{password} {mta_url}/hub/tasks | \
+curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks | \
   python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -718,7 +738,7 @@ if isinstance(data, list) and data:
 +
 [source,bash,role="execute",subs="attributes+"]
 ----
-curl -s -u {user}:{password} {mta_url}/hub/rulesets | python3 -m json.tool | head -20
+curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | python3 -m json.tool | head -20
 ----
 
 **問題**: YAML ファイルのアップロードが失敗する
@@ -737,7 +757,7 @@ echo "ファイルサイズ: $(wc -c < ~/petclinic-custom-rules/spring-to-quarku
 +
 [source,bash,role="execute",subs="attributes+"]
 ----
-TASK_ID=$(curl -s -u {user}:{password} {mta_url}/hub/tasks | \
+TASK_ID=$(curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks | \
   python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -745,7 +765,7 @@ if isinstance(data, list) and data:
     latest = sorted(data, key=lambda x: x.get('id', 0), reverse=True)[0]
     print(latest['id'])
 ")
-curl -s -u {user}:{password} {mta_url}/hub/tasks/${TASK_ID}/logs | tail -30
+curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/tasks/${TASK_ID}/logs | tail -30
 ----
 
 **問題**: カスタムルールの検出結果がゼロになる
