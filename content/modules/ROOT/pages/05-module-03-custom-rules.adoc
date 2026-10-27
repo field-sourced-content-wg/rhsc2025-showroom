@@ -121,7 +121,7 @@ curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/r
 
 . 組み込みルールセットの数を確認します:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets | python3 -c "
 import json, sys
