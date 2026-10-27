@@ -518,19 +518,23 @@ ls custom-rules/spring-to-quarkus-rules.yaml pom.xml
 ----
 Profile Name: petclinic-custom-springboot-rule
 Configure label selector (Target):
-  - custom-springboot-rule    ← 候補に無ければ手入力で追加
+  - quarkus                     ← デフォルトルール用（リストから選択可）
+  - custom-springboot-rule      ← カスタム用。リストに無いので手入力で追加
 Source:
   - （未指定で可）
 Set rules:
-  - Use Default Rules: オフ（カスタムだけ確認するなら推奨）
+  - Use Default Rules: オン
   - Custom rules: custom-rules/spring-to-quarkus-rules.yaml を選択（またはアップロード）
 ----
 +
-[NOTE]
+[IMPORTANT]
 ====
-Target に組み込みの `quarkus` ではなく `custom-springboot-rule` を使うのは、
-標準ルールとラベルが被ると Issues / ログ上で区別しづらいためです。
-YAML 側の `konveyor.io/target=` と **同じ文字列** である必要があります。
+ポイントは **Target にリストに無い `custom-springboot-rule` を手入力で追加すること** です。
+候補の `quarkus` だけだと、YAML の `konveyor.io/target=custom-springboot-rule` と一致せず、
+カスタムルールはラベルセレクタで落ちます（デフォルトルールのオン／オフとは別問題）。
+
+公式どおり、カスタムルールで新しい target 名を書いた場合は Label Selector に
+その名前を入力して追加できます。YAML 側の文字列と **完全一致** させてください。
 ====
 
 . 設定を閉じ、プロファイル `petclinic-custom-springboot-rule` が選択されていることを確認します。
@@ -568,8 +572,9 @@ OK のサイン（環境により表記は多少異なる）:
 
 NG のサイン:
   - --rules や custom-rules パスが一切出ない → Set rules にファイルが載っていない
-  - label-selector が quarkus のみ → カスタムラベルと不一致でフィルタ落ち
-  - Use Default Rules のみで Custom rules 未選択
+  - label-selector / target が quarkus のみ（custom-springboot-rule が無い）
+    → カスタムラベルと不一致でフィルタ落ち
+  - Custom rules 未選択（Default だけではカスタム ruleID は出ない）
 ----
 
 [TIP]
@@ -606,19 +611,20 @@ image::module03-custom-rules-results.png[カスタムルール検出結果,link=
 
 * ルール YAML が `/projects/spring-petclinic/custom-rules/` にある
 * Analysis Profile の Set rules にその YAML が選ばれている
-* Label Selector の Target が `custom-springboot-rule` である
-* OUTPUT にカスタムルールパス / ラベルの痕跡がある
+* Label Selector の Target に **`custom-springboot-rule`（手入力）** と、必要なら `quarkus` がある
+* Use Default Rules がオン、かつ Custom rules に YAML が選ばれている
+* OUTPUT にカスタムルールパス / `custom-springboot-rule` の痕跡がある
 * Issues に上記 4 系統の ruleID（または同等メッセージ）が見える
 
 === よくある問題
 
-**問題**: 再実行しても OUTPUT にカスタムルールが現れない / 呼ばれていないように見える
+**問題**: 再実行してもカスタムルールが呼ばれていないように見える
 
 → **解決方法**:
+. Label Selector の Target に **`custom-springboot-rule` を手入力追加**したか確認する  
+  （リストの `quarkus` だけではカスタム YAML はマッチしない）
+. Get Ready to Analyze → **Set rules** で YAML が選択済みか確認する
 . Explorer で `custom-rules/spring-to-quarkus-rules.yaml` が見えるか確認する（ワークスペース外だと不可）
-. Get Ready to Analyze → **Set rules** で YAML が選択済みか確認する（Hub Target 登録では Plugin に同期されない）
-. Label Selector が **`custom-springboot-rule`** か確認する（`quarkus` のままだとフィルタで落ちる）
-. カスタムだけ見るなら **Use Default Rules をオフ** にする
 . プロファイル保存後、RPC サーバーを Stop → Start してから再解析する
 
 **問題**: カスタムルールの検出結果がゼロになる（ログにはパスがある）
