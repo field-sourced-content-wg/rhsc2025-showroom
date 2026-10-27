@@ -28,7 +28,7 @@ Legacy Java Japan カンパニーの移行プロジェクトには、一貫し�
 
 https://devspaces.{cluster_domain}[DevSpaces を開く, window=_blank]
 
-. Dev Spaces のログイン画面が表示されたら、インストラクターから指示された認証情報でログインします:
+. Dev Spaces のログイン画面が表示されたら、インストラクターから指示された認証情報でログインします
 
 . ログイン後、「Create Workspace」画面が開きます。
 

@@ -34,7 +34,7 @@ MTA はカスタムルールをサポートしています。Spring Boot → Qua
 +
 https://devspaces.{cluster_domain}[DevSpaces を開く, window=_blank]
 
-. Dev Spaces のログイン画面が表示されたら、インストラクターから指示のあった認証情報でログインします:
+. Dev Spaces のログイン画面が表示されたら、インストラクターから指示のあった認証情報でログインします
 
 . ログイン後、「Create Workspace」画面が開きます。すでに coolstore 用のワークスペースがある場合でも、このモジュールでは spring-petclinic 用のワークスペースを新規作成します。
 
@@ -64,7 +64,6 @@ ls -la
 +
 [source,bash,role="execute"]
 ----
-cd /projects/spring-petclinic
 test -f pom.xml && test -d src && echo "spring-petclinic の準備 OK"
 ----
 
@@ -135,10 +134,11 @@ for rs in data[:5]:
 
 . 特定のルールセット (例: ID=1) の詳細を確認し、ルールの構造を見ていきます:
 +
-[source,bash,role="execute"]
+[source,bash,role="execute",subs="attributes+"]
 ----
 curl -s -u {mta_admin_username}:{mta_admin_password} {mta_ui_internal_url}/hub/rulesets/1 | python3 -m json.tool
 ----
++
 
 image::module03-ruleset-list.png[MTA ルールセット一覧,link=self,window=blank,width=700]
 
